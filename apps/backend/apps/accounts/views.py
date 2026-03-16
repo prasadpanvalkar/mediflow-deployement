@@ -315,3 +315,126 @@ class CustomerDetailView(APIView):
         }
 
         return Response(result, status=status.HTTP_200_OK)
+
+
+class CustomerListView(APIView):
+    """
+    GET /api/v1/customers/ - List customers for outlet
+    POST /api/v1/customers/ - Create new customer
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        """List customers for outlet with pagination and optional search."""
+        outlet_id = request.query_params.get('outletId')
+        search_query = request.query_params.get('search', '').strip()
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('pageSize', 50))
+
+        # Validate outlet
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response(
+                {'detail': f'Outlet {outlet_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Query customers
+        customers = Customer.objects.filter(outlet=outlet, is_active=True)
+
+        # Apply search filter
+        if search_query:
+            query_lower = search_query.lower()
+            customers = customers.filter(
+                Q(name__icontains=query_lower) | Q(phone__icontains=query_lower)
+            )
+
+        # Apply pagination
+        total_records = customers.count()
+        start = (page - 1) * page_size
+        end = start + page_size
+        customers_page = customers[start:end]
+
+        # Serialize customers
+        results = []
+        for customer in customers_page:
+            result = {
+                'id': str(customer.id),
+                'name': customer.name,
+                'phone': customer.phone,
+                'address': customer.address,
+                'dob': customer.dob.isoformat() if customer.dob else None,
+                'gstin': customer.gstin,
+                'fixedDiscount': float(customer.fixed_discount),
+                'creditLimit': float(customer.credit_limit),
+                'outstanding': float(customer.outstanding),
+                'totalPurchases': float(customer.total_purchases),
+                'isChronic': customer.is_chronic,
+                'isActive': customer.is_active,
+                'createdAt': customer.created_at.isoformat(),
+            }
+            results.append(result)
+
+        total_pages = (total_records + page_size - 1) // page_size
+
+        response_data = {
+            'data': results,
+            'pagination': {
+                'page': page,
+                'pageSize': page_size,
+                'totalPages': total_pages,
+                'totalRecords': total_records,
+            }
+        }
+
+        logger.info(f"Listed {len(results)} customers for outlet {outlet.name}")
+        return Response(response_data, status=status.HTTP_200_OK)
+
+    def post(self, request, *args, **kwargs):
+        """Create a new customer."""
+        outlet_id = request.data.get('outletId')
+        name = request.data.get('name')
+        phone = request.data.get('phone')
+        address = request.data.get('address')
+        dob = request.data.get('dob')
+
+        # Validate outlet
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response(
+                {'detail': f'Outlet {outlet_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Create customer
+        customer = Customer.objects.create(
+            outlet=outlet,
+            name=name,
+            phone=phone,
+            address=address,
+            dob=dob if dob else None,
+            is_active=True,
+        )
+
+        logger.info(f"Created customer {customer.id} ({customer.name}) for outlet {outlet.name}")
+
+        result = {
+            'id': str(customer.id),
+            'name': customer.name,
+            'phone': customer.phone,
+            'address': customer.address,
+            'dob': customer.dob.isoformat() if customer.dob else None,
+            'gstin': customer.gstin,
+            'fixedDiscount': float(customer.fixed_discount),
+            'creditLimit': float(customer.credit_limit),
+            'outstanding': float(customer.outstanding),
+            'totalPurchases': float(customer.total_purchases),
+            'isChronic': customer.is_chronic,
+            'isActive': customer.is_active,
+            'createdAt': customer.created_at.isoformat(),
+        }
+
+        return Response(result, status=status.HTTP_201_CREATED)

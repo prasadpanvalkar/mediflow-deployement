@@ -140,23 +140,11 @@ Copy `.env.example` to `.env`. Key vars:
 
 
 ## Current Implementation Status
-- ✅ Phase 1 Models - All 15 models — DONE
-- ✅ Phase 2 Services - All 5 services — DONE
-- ✅ Phase 3 API Endpoints - All 13 endpoints — DONE
-  - ✅ POST /api/v1/auth/login/
-  - ✅ GET /api/v1/products/search/
-  - ✅ GET /api/v1/inventory/
-  - ✅ GET+POST /api/v1/customers/
-  - ✅ GET+POST /api/v1/distributors/
-  - ✅ GET /api/v1/distributors/{id}/ledger/
-  - ✅ POST+GET /api/v1/sales/
-  - ✅ POST+GET /api/v1/purchases/
-  - ✅ POST /api/v1/purchases/payments/
-  - ✅ POST /api/v1/credit/payment/
-  - ✅ GET /api/v1/dashboard/daily/
-  - ✅ POST /api/v1/attendance/check-in/
-- ✅ Phase 4: Tests — DONE (84 tests, 0 failures)
-- 🔄 Phase 5: Switch USE_MOCK=false — NEXT (FINAL PHASE!)
+- ✅ Phase 1 Models — 15 Django models — DONE
+- ✅ Phase 2 Services — 5 atomic business logic services — DONE
+- ✅ Phase 3 API Endpoints — 13 endpoints, 21 total routes — DONE
+- ✅ Phase 4 Tests — 84 tests, 0 failures — DONE
+- ✅ Phase 5 USE_MOCK=false — Frontend live on real API — DONE
 - Full plan: docs/plan.md
 
 
