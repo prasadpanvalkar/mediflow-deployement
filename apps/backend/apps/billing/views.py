@@ -911,3 +911,128 @@ class DashboardDailyView(APIView):
             })
 
         return alerts
+
+
+class CreditAccountListView(APIView):
+    """
+    GET /api/v1/credit/accounts/?outletId=xxx
+
+    List all credit accounts for an outlet with customer details.
+    Returns paginated list of CreditAccount objects with customer information.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        """List credit accounts for outlet."""
+        outlet_id = request.query_params.get('outletId')
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('pageSize', 50))
+        search = request.query_params.get('search', '').strip()
+
+        # Validate outlet
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response(
+                {'detail': f'Outlet {outlet_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Query credit accounts
+        accounts = CreditAccount.objects.filter(outlet=outlet).select_related('customer')
+
+        # Apply search filter (by customer name or phone)
+        if search:
+            query_lower = search.lower()
+            accounts = accounts.filter(
+                Q(customer__name__icontains=query_lower) |
+                Q(customer__phone__icontains=query_lower)
+            )
+
+        # Apply pagination
+        total_records = accounts.count()
+        start = (page - 1) * page_size
+        end = start + page_size
+        accounts_page = accounts[start:end]
+
+        # Serialize accounts
+        results = []
+        for account in accounts_page:
+            result = {
+                'id': str(account.id),
+                'customerId': str(account.customer_id),
+                'customer': {
+                    'id': str(account.customer.id),
+                    'name': account.customer.name,
+                    'phone': account.customer.phone,
+                    'address': account.customer.address,
+                },
+                'outletId': str(account.outlet_id),
+                'creditLimit': float(account.credit_limit),
+                'totalOutstanding': float(account.total_outstanding),
+                'totalBorrowed': float(account.total_borrowed),
+                'totalRepaid': float(account.total_repaid),
+                'status': account.status,
+                'lastTransactionDate': account.last_transaction_date.isoformat() if account.last_transaction_date else None,
+                'createdAt': account.created_at.isoformat(),
+            }
+            results.append(result)
+
+        total_pages = (total_records + page_size - 1) // page_size
+
+        response_data = {
+            'data': results,
+            'pagination': {
+                'page': page,
+                'pageSize': page_size,
+                'totalPages': total_pages,
+                'totalRecords': total_records,
+            }
+        }
+
+        logger.info(f"Listed {len(results)} credit accounts for outlet {outlet.name}")
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
+class CreditAccountDetailView(APIView):
+    """
+    GET /api/v1/credit/accounts/{id}/
+
+    Get details of a specific credit account with customer information.
+    Returns full CreditAccount object with linked customer profile.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, account_id, *args, **kwargs):
+        """Get credit account details."""
+        try:
+            account = CreditAccount.objects.get(id=account_id)
+        except CreditAccount.DoesNotExist:
+            return Response(
+                {'detail': f'Credit account {account_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        result = {
+            'id': str(account.id),
+            'customerId': str(account.customer_id),
+            'customer': {
+                'id': str(account.customer.id),
+                'name': account.customer.name,
+                'phone': account.customer.phone,
+                'address': account.customer.address,
+            },
+            'outletId': str(account.outlet_id),
+            'creditLimit': float(account.credit_limit),
+            'totalOutstanding': float(account.total_outstanding),
+            'totalBorrowed': float(account.total_borrowed),
+            'totalRepaid': float(account.total_repaid),
+            'status': account.status,
+            'lastTransactionDate': account.last_transaction_date.isoformat() if account.last_transaction_date else None,
+            'createdAt': account.created_at.isoformat(),
+        }
+
+        logger.info(f"Retrieved credit account {account_id}")
+        return Response(result, status=status.HTTP_200_OK)
