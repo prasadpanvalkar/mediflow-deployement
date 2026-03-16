@@ -942,3 +942,198 @@ class InventoryListViewTestCase(TestCase):
         ]
         for field in required_fields:
             self.assertIn(field, product, f"Missing field: {field}")
+
+
+class FEFOAndBatchSelectionTestCase(TestCase):
+    """Test suite for FEFO batch ordering and auto-split logic."""
+
+    def setUp(self):
+        """Create test data: organization, outlet, staff, product, batches."""
+        self.client = APIClient()
+
+        # Create organization
+        self.org = Organization.objects.create(
+            name="Test Pharmacy Chain",
+            slug="test-pharmacy",
+            plan="pro",
+            is_active=True
+        )
+
+        # Create outlet
+        self.outlet = Outlet.objects.create(
+            organization=self.org,
+            name="Test Outlet",
+            address="123 Main St",
+            city="Mumbai",
+            state="Maharashtra",
+            pincode="400001",
+            gstin="27AAPCT1234E1Z0",
+            drug_license_no=f"DLN-{uuid.uuid4().hex[:12].upper()}",
+            phone="9876543210",
+            is_active=True
+        )
+
+        # Create staff member
+        self.staff = Staff.objects.create(
+            phone="9876543210",
+            name="Rajesh Patil",
+            outlet=self.outlet,
+            role="super_admin",
+            staff_pin="0000",
+            is_active=True
+        )
+
+        # Create master product
+        self.product = MasterProduct.objects.create(
+            name="Dolo 650",
+            composition="Paracetamol 650mg",
+            manufacturer="Micro Labs",
+            category="Pain Relief",
+            drug_type="allopathy",
+            schedule_type="OTC",
+            hsn_code="3004901",
+            gst_rate=5.0,
+            pack_size=10,
+            pack_unit="Strips",
+            pack_type="strip",
+            is_fridge=False,
+            is_discontinued=False
+        )
+
+    def test_fefo_order_oldest_expiry_first(self):
+        """Verify FEFO batch selection uses oldest expiry first."""
+        from apps.billing.services import fefo_batch_select
+
+        # Create batch 1: Expires 2027-12-31 (newer)
+        batch1 = Batch.objects.create(
+            outlet=self.outlet,
+            product=self.product,
+            batch_no="BATCH001",
+            expiry_date=timezone.now().date() + timedelta(days=365),  # 1 year
+            mrp=15.0,
+            purchase_rate=10.0,
+            sale_rate=14.0,
+            qty_strips=20,
+            qty_loose=0,
+        )
+
+        # Create batch 2: Expires 2026-06-30 (older)
+        batch2 = Batch.objects.create(
+            outlet=self.outlet,
+            product=self.product,
+            batch_no="BATCH002",
+            expiry_date=timezone.now().date() + timedelta(days=100),  # ~3 months
+            mrp=15.0,
+            purchase_rate=10.0,
+            sale_rate=14.0,
+            qty_strips=20,
+            qty_loose=0,
+        )
+
+        # Request 25 strips total
+        allocations = fefo_batch_select(str(self.outlet.id), str(self.product.id), 25)
+
+        # Should take from BATCH2 (older) first
+        self.assertEqual(len(allocations), 2)
+        self.assertEqual(allocations[0]['batch'].id, batch2.id)
+        self.assertEqual(allocations[0]['qty_to_deduct'], 20)
+        self.assertEqual(allocations[1]['batch'].id, batch1.id)
+        self.assertEqual(allocations[1]['qty_to_deduct'], 5)
+
+    def test_auto_split_across_batches(self):
+        """Verify auto-split correctly allocates across multiple batches."""
+        from apps.billing.services import fefo_batch_select
+
+        # Batch1: 10 strips
+        batch1 = Batch.objects.create(
+            outlet=self.outlet,
+            product=self.product,
+            batch_no="BATCH001",
+            expiry_date=timezone.now().date() + timedelta(days=60),
+            mrp=15.0,
+            purchase_rate=10.0,
+            sale_rate=14.0,
+            qty_strips=10,
+            qty_loose=0,
+        )
+
+        # Batch2: 8 strips
+        batch2 = Batch.objects.create(
+            outlet=self.outlet,
+            product=self.product,
+            batch_no="BATCH002",
+            expiry_date=timezone.now().date() + timedelta(days=120),
+            mrp=15.0,
+            purchase_rate=10.0,
+            sale_rate=14.0,
+            qty_strips=8,
+            qty_loose=0,
+        )
+
+        # Request 15 strips
+        allocations = fefo_batch_select(str(self.outlet.id), str(self.product.id), 15)
+
+        # Should use all of batch1 (10) + 5 from batch2 (8)
+        self.assertEqual(len(allocations), 2)
+        self.assertEqual(allocations[0]['qty_to_deduct'], 10)
+        self.assertEqual(allocations[1]['qty_to_deduct'], 5)
+        self.assertEqual(allocations[0]['batch'].id, batch1.id)
+        self.assertEqual(allocations[1]['batch'].id, batch2.id)
+
+    def test_insufficient_stock_error(self):
+        """Verify InsufficientStockError is raised when total stock is insufficient."""
+        from apps.billing.services import fefo_batch_select, InsufficientStockError
+
+        # Create batch with only 10 strips
+        batch = Batch.objects.create(
+            outlet=self.outlet,
+            product=self.product,
+            batch_no="BATCH001",
+            expiry_date=timezone.now().date() + timedelta(days=90),
+            mrp=15.0,
+            purchase_rate=10.0,
+            sale_rate=14.0,
+            qty_strips=10,
+            qty_loose=0,
+        )
+
+        # Try to request 20 strips (more than available)
+        with self.assertRaises(InsufficientStockError):
+            fefo_batch_select(str(self.outlet.id), str(self.product.id), 20)
+
+    def test_fefo_excludes_expired_batches(self):
+        """Verify FEFO selection excludes already-expired batches."""
+        from apps.billing.services import fefo_batch_select
+
+        # Expired batch (should be excluded)
+        expired_batch = Batch.objects.create(
+            outlet=self.outlet,
+            product=self.product,
+            batch_no="EXPIRED",
+            expiry_date=timezone.now().date() - timedelta(days=10),  # Expired 10 days ago
+            mrp=15.0,
+            purchase_rate=10.0,
+            sale_rate=14.0,
+            qty_strips=100,  # Lots of stock, but expired
+            qty_loose=0,
+        )
+
+        # Valid batch
+        valid_batch = Batch.objects.create(
+            outlet=self.outlet,
+            product=self.product,
+            batch_no="VALID",
+            expiry_date=timezone.now().date() + timedelta(days=90),
+            mrp=15.0,
+            purchase_rate=10.0,
+            sale_rate=14.0,
+            qty_strips=5,
+            qty_loose=0,
+        )
+
+        # Request 5 strips
+        allocations = fefo_batch_select(str(self.outlet.id), str(self.product.id), 5)
+
+        # Should only use valid batch, not expired
+        self.assertEqual(len(allocations), 1)
+        self.assertEqual(allocations[0]['batch'].id, valid_batch.id)

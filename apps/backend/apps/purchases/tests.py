@@ -1198,3 +1198,298 @@ class DistributorPaymentViewTestCase(TestCase):
         ]
         for field in allocation_fields:
             self.assertIn(field, allocation, f"Missing allocation field: {field}")
+
+
+class BatchMergeAndAtomicityTestCase(TestCase):
+    """Test suite for batch merge logic and atomic transaction rollback."""
+
+    def setUp(self):
+        """Create test data: organization, outlet, staff, distributor, product."""
+        # Create organization
+        self.org = Organization.objects.create(
+            name="Test Pharmacy Chain",
+            slug="test-pharmacy",
+            plan="pro",
+            is_active=True
+        )
+
+        # Create outlet
+        self.outlet = Outlet.objects.create(
+            organization=self.org,
+            name="Test Outlet",
+            address="123 Main St",
+            city="Mumbai",
+            state="Maharashtra",
+            pincode="400001",
+            gstin="27AAPCT1234E1Z0",
+            drug_license_no=f"DLN-{uuid.uuid4().hex[:12].upper()}",
+            phone="9876543210",
+            is_active=True
+        )
+
+        # Create staff member
+        self.staff = Staff.objects.create(
+            phone="9876543210",
+            name="Rajesh Patil",
+            outlet=self.outlet,
+            role="super_admin",
+            staff_pin="0000",
+            is_active=True
+        )
+
+        # Create distributor
+        self.distributor = Distributor.objects.create(
+            outlet=self.outlet,
+            name="ABC Pharma",
+            gstin="27AABCT1234E1Z0",
+            phone="9999888877",
+            email="abc@pharma.com",
+            address="456 Distributor Lane",
+            city="Mumbai",
+            state="Maharashtra",
+            credit_days=30,
+            opening_balance=10000.0,
+            balance_type="CR",
+            is_active=True
+        )
+
+        # Create master product
+        self.product = MasterProduct.objects.create(
+            name="Dolo 650 Tablet",
+            composition="Paracetamol 650mg",
+            manufacturer="Micro Labs",
+            category="Pain Relief",
+            drug_type="allopathy",
+            schedule_type="OTC",
+            hsn_code="3004",
+            gst_rate=Decimal("5.00"),
+            pack_size=10,
+            pack_unit="Strips",
+            pack_type="Blister",
+            is_fridge=False,
+            is_discontinued=False
+        )
+
+    def test_batch_merge_adds_quantity(self):
+        """Verify batch merge adds quantity to existing batch instead of creating duplicate."""
+        from apps.purchases.services import atomic_purchase_save
+
+        # Create first purchase with batch BATCH001
+        payload1 = {
+            "outletId": str(self.outlet.id),
+            "distributorId": str(self.distributor.id),
+            "purchaseType": "credit",
+            "invoiceNo": f"PU-{uuid.uuid4().hex[:6].upper()}",
+            "invoiceDate": "2026-03-17",
+            "dueDate": "2026-04-16",
+            "godown": "main",
+            "freight": 0,
+            "subtotal": 1000,
+            "discountAmount": 0,
+            "taxableAmount": 1000,
+            "gstAmount": 180,
+            "cessAmount": 0,
+            "roundOff": 0,
+            "grandTotal": 1180,
+            "items": [
+                {
+                    "masterProductId": str(self.product.id),
+                    "customProductName": None,
+                    "isCustomProduct": False,
+                    "hsnCode": "3004",
+                    "batchNo": "BATCH001",
+                    "expiryDate": "2026-12-31",
+                    "pkg": 10,
+                    "qty": 10,
+                    "actualQty": 100,
+                    "freeQty": 0,
+                    "purchaseRate": 10,
+                    "discountPct": 0,
+                    "cashDiscountPct": 0,
+                    "gstRate": 5,
+                    "cess": 0,
+                    "mrp": 15,
+                    "ptr": 12,
+                    "pts": 11,
+                    "saleRate": 14,
+                    "taxableAmount": 1000,
+                    "gstAmount": 180,
+                    "cessAmount": 0,
+                    "totalAmount": 1180
+                }
+            ]
+        }
+
+        inv1 = atomic_purchase_save(payload1, str(self.outlet.id), str(self.staff.id))
+        batch_count_after_first = Batch.objects.filter(batch_no="BATCH001").count()
+        self.assertEqual(batch_count_after_first, 1)
+
+        # Get the created batch
+        batch1 = Batch.objects.get(batch_no="BATCH001")
+        self.assertEqual(batch1.qty_strips, 100)
+
+        # Create second purchase with same batch number
+        payload2 = {
+            "outletId": str(self.outlet.id),
+            "distributorId": str(self.distributor.id),
+            "purchaseType": "credit",
+            "invoiceNo": f"PU-{uuid.uuid4().hex[:6].upper()}",
+            "invoiceDate": "2026-03-18",
+            "dueDate": "2026-04-17",
+            "godown": "main",
+            "freight": 0,
+            "subtotal": 500,
+            "discountAmount": 0,
+            "taxableAmount": 500,
+            "gstAmount": 90,
+            "cessAmount": 0,
+            "roundOff": 0,
+            "grandTotal": 590,
+            "items": [
+                {
+                    "masterProductId": str(self.product.id),
+                    "customProductName": None,
+                    "isCustomProduct": False,
+                    "hsnCode": "3004",
+                    "batchNo": "BATCH001",  # Same batch number
+                    "expiryDate": "2026-12-31",  # Same expiry
+                    "pkg": 10,
+                    "qty": 5,
+                    "actualQty": 50,
+                    "freeQty": 0,
+                    "purchaseRate": 10,
+                    "discountPct": 0,
+                    "cashDiscountPct": 0,
+                    "gstRate": 5,
+                    "cess": 0,
+                    "mrp": 15,
+                    "ptr": 12,
+                    "pts": 11,
+                    "saleRate": 14,
+                    "taxableAmount": 500,
+                    "gstAmount": 90,
+                    "cessAmount": 0,
+                    "totalAmount": 590
+                }
+            ]
+        }
+
+        inv2 = atomic_purchase_save(payload2, str(self.outlet.id), str(self.staff.id))
+
+        # Verify batch was merged, not created new
+        batch_count_after_second = Batch.objects.filter(batch_no="BATCH001").count()
+        self.assertEqual(batch_count_after_second, 1, "Batch should not be duplicated")
+
+        # Verify quantity was added
+        batch1_updated = Batch.objects.get(batch_no="BATCH001")
+        self.assertEqual(batch1_updated.qty_strips, 150, "Batch quantity should be 100 + 50 = 150")
+
+    def test_batch_with_different_expiry_creates_separate_batch(self):
+        """Verify batches with same batch_no but different expiry create separate entries."""
+        from apps.purchases.services import atomic_purchase_save
+
+        # First purchase: BATCH002, expiry 2026-12-31
+        payload1 = {
+            "outletId": str(self.outlet.id),
+            "distributorId": str(self.distributor.id),
+            "purchaseType": "credit",
+            "invoiceNo": f"PU-{uuid.uuid4().hex[:6].upper()}",
+            "invoiceDate": "2026-03-17",
+            "dueDate": "2026-04-16",
+            "godown": "main",
+            "freight": 0,
+            "subtotal": 1000,
+            "discountAmount": 0,
+            "taxableAmount": 1000,
+            "gstAmount": 180,
+            "cessAmount": 0,
+            "roundOff": 0,
+            "grandTotal": 1180,
+            "items": [
+                {
+                    "masterProductId": str(self.product.id),
+                    "customProductName": None,
+                    "isCustomProduct": False,
+                    "hsnCode": "3004",
+                    "batchNo": "BATCH002",
+                    "expiryDate": "2026-12-31",
+                    "pkg": 10,
+                    "qty": 10,
+                    "actualQty": 100,
+                    "freeQty": 0,
+                    "purchaseRate": 10,
+                    "discountPct": 0,
+                    "cashDiscountPct": 0,
+                    "gstRate": 5,
+                    "cess": 0,
+                    "mrp": 15,
+                    "ptr": 12,
+                    "pts": 11,
+                    "saleRate": 14,
+                    "taxableAmount": 1000,
+                    "gstAmount": 180,
+                    "cessAmount": 0,
+                    "totalAmount": 1180
+                }
+            ]
+        }
+
+        inv1 = atomic_purchase_save(payload1, str(self.outlet.id), str(self.staff.id))
+
+        # Second purchase: BATCH002, different expiry 2027-06-30
+        payload2 = {
+            "outletId": str(self.outlet.id),
+            "distributorId": str(self.distributor.id),
+            "purchaseType": "credit",
+            "invoiceNo": f"PU-{uuid.uuid4().hex[:6].upper()}",
+            "invoiceDate": "2026-03-18",
+            "dueDate": "2026-04-17",
+            "godown": "main",
+            "freight": 0,
+            "subtotal": 500,
+            "discountAmount": 0,
+            "taxableAmount": 500,
+            "gstAmount": 90,
+            "cessAmount": 0,
+            "roundOff": 0,
+            "grandTotal": 590,
+            "items": [
+                {
+                    "masterProductId": str(self.product.id),
+                    "customProductName": None,
+                    "isCustomProduct": False,
+                    "hsnCode": "3004",
+                    "batchNo": "BATCH002",  # Same batch number
+                    "expiryDate": "2027-06-30",  # Different expiry
+                    "pkg": 10,
+                    "qty": 5,
+                    "actualQty": 50,
+                    "freeQty": 0,
+                    "purchaseRate": 10,
+                    "discountPct": 0,
+                    "cashDiscountPct": 0,
+                    "gstRate": 5,
+                    "cess": 0,
+                    "mrp": 15,
+                    "ptr": 12,
+                    "pts": 11,
+                    "saleRate": 14,
+                    "taxableAmount": 500,
+                    "gstAmount": 90,
+                    "cessAmount": 0,
+                    "totalAmount": 590
+                }
+            ]
+        }
+
+        inv2 = atomic_purchase_save(payload2, str(self.outlet.id), str(self.staff.id))
+
+        # Verify two separate batches were created (different expiry)
+        batch_count = Batch.objects.filter(batch_no="BATCH002").count()
+        self.assertEqual(batch_count, 2, "Different expiry dates should create separate batches")
+
+        # Verify each has correct quantity
+        batch_2026 = Batch.objects.get(batch_no="BATCH002", expiry_date=date(2026, 12, 31))
+        batch_2027 = Batch.objects.get(batch_no="BATCH002", expiry_date=date(2027, 6, 30))
+        self.assertEqual(batch_2026.qty_strips, 100)
+        self.assertEqual(batch_2027.qty_strips, 50)

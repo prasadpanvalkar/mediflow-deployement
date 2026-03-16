@@ -140,28 +140,23 @@ Copy `.env.example` to `.env`. Key vars:
 
 
 ## Current Implementation Status
-- ✅ Phase 1 Models - Core: Organization, Outlet, Staff — DONE
-- ✅ Phase 1 Models - Inventory: MasterProduct, Batch — DONE
-- ✅ Phase 1 Models - Billing: SaleInvoice, SaleItem, ScheduleHRegister, Customer, Doctor — DONE
-- ✅ Phase 1 Models - Purchases: Distributor, PurchaseInvoice, PurchaseItem — DONE
-- ✅ Phase 1 Models - Accounts: CreditAccount, CreditTransaction, PaymentEntry, PaymentAllocation, LedgerEntry — DONE
-- ✅ Phase 2 Services - Purchase: atomic_purchase_save — DONE
-- ✅ Phase 2 Services - Sales: fefo_batch_select — DONE
-- ✅ Phase 2 Services - Sales: schedule_h_validate, generate_invoice_number — DONE
-- ✅ Phase 2 Services - Payments: bill_by_bill_payment_allocate — DONE
-- 🔄 Phase 3: API endpoints — IN PROGRESS
-  - ✅ POST /api/v1/auth/login/ — DONE
-  - ✅ GET /api/v1/products/search/ — DONE
-  - ✅ GET+POST /api/v1/customers/ — DONE
-  - ✅ GET+POST /api/v1/distributors/ — DONE
-  - ✅ GET /api/v1/distributors/{id}/ledger/ — DONE
-  - ✅ GET /api/v1/inventory/ — DONE (55 tests passing)
-  - ✅ POST /api/v1/sales/ — DONE (atomic, FEFO, Schedule H, multi-split)
-  - ✅ GET /api/v1/sales/ — DONE
-  - ✅ POST /api/v1/purchases/payments/ — DONE (bill-by-bill allocation)
-  - ✅ POST /api/v1/credit/payment/ — DONE (customer udhari collection)
-  - 🔄 GET /api/v1/dashboard/daily/ + POST /api/v1/attendance/check-in/ — NEXT
-  - ⏳ POST /api/v1/attendance/check-in/
+- ✅ Phase 1 Models - All 15 models — DONE
+- ✅ Phase 2 Services - All 5 services — DONE
+- ✅ Phase 3 API Endpoints - All 13 endpoints — DONE
+  - ✅ POST /api/v1/auth/login/
+  - ✅ GET /api/v1/products/search/
+  - ✅ GET /api/v1/inventory/
+  - ✅ GET+POST /api/v1/customers/
+  - ✅ GET+POST /api/v1/distributors/
+  - ✅ GET /api/v1/distributors/{id}/ledger/
+  - ✅ POST+GET /api/v1/sales/
+  - ✅ POST+GET /api/v1/purchases/
+  - ✅ POST /api/v1/purchases/payments/
+  - ✅ POST /api/v1/credit/payment/
+  - ✅ GET /api/v1/dashboard/daily/
+  - ✅ POST /api/v1/attendance/check-in/
+- ✅ Phase 4: Tests — DONE (84 tests, 0 failures)
+- 🔄 Phase 5: Switch USE_MOCK=false — NEXT (FINAL PHASE!)
 - Full plan: docs/plan.md
 
 
