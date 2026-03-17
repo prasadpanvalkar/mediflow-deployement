@@ -21,7 +21,6 @@ import {
     exportStaffReportCSV,
     exportPurchaseReportCSV,
 } from '@/lib/reportExport';
-import { mockSalesReportData, mockStockValuation, mockExpiryReport, mockStaffReport, mockPurchaseReport } from '@/mock/reports.mock';
 
 interface ExportButtonProps {
     activeTab: string;
@@ -34,9 +33,7 @@ export function ExportButton({ activeTab, dateRange }: ExportButtonProps) {
     const { data: gstData } = useGSTReport(dateRange);
 
     const handleCSV = () => {
-        const allSales = mockSalesReportData.filter(
-            r => r.date >= dateRange.from && r.date <= dateRange.to
-        );
+        const allSales: any[] = []; // Phase 2: getSalesReport API not yet wired to this component
 
         switch (activeTab) {
             case 'sales':
@@ -46,19 +43,16 @@ export function ExportButton({ activeTab, dateRange }: ExportButtonProps) {
                 if (gstData) exportGSTReportCSV(gstData);
                 break;
             case 'stock':
-                exportStockValuationCSV(mockStockValuation);
+                exportStockValuationCSV([]); // Phase 2: NOT_IMPLEMENTED
                 break;
             case 'expiry':
-                exportExpiryReportCSV(mockExpiryReport);
+                exportExpiryReportCSV([]); // Phase 2: NOT_IMPLEMENTED
                 break;
             case 'staff':
-                exportStaffReportCSV(mockStaffReport, dateRange);
+                exportStaffReportCSV([], dateRange); // Phase 2: NOT_IMPLEMENTED
                 break;
             case 'purchases':
-                exportPurchaseReportCSV(
-                    mockPurchaseReport.filter(r => r.date >= dateRange.from && r.date <= dateRange.to),
-                    dateRange
-                );
+                exportPurchaseReportCSV([], dateRange); // Phase 2: NOT_IMPLEMENTED
                 break;
         }
     };

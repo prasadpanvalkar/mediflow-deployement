@@ -133,7 +133,7 @@ export default function CustomerCreditDetail({
                     </div>
                 ) : transactions && transactions.length > 0 ? (
                     <div className="space-y-0">
-                        {transactions.map((tx, idx) => (
+                        {transactions.map((tx: any, idx: number) => (
                             <div key={tx.id} className="flex items-start gap-3 py-3 border-b last:border-b-0 relative">
                                 {/* Timeline line */}
                                 {idx < transactions.length - 1 && (

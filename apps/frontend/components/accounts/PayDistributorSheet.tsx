@@ -91,17 +91,17 @@ export function PayDistributorSheet({ open, onClose, preSelectedDistributorId, o
     }
 
     const allocations = (unpaidInvoices ?? [])
-        .map((inv) => ({
+        .map((inv: any) => ({
             inv,
             amt: parseFloat(amounts[inv.id] ?? '0') || 0,
         }))
-        .filter((a) => a.amt > 0);
+        .filter((a: any) => a.amt > 0);
 
-    const totalAllocated = allocations.reduce((s, a) => s + a.amt, 0);
+    const totalAllocated = allocations.reduce((s: number, a: any) => s + a.amt, 0);
 
-    const totalOutstanding = (unpaidInvoices ?? []).reduce((s, i) => s + i.outstanding, 0);
+    const totalOutstanding = (unpaidInvoices ?? []).reduce((s: number, i: any) => s + i.outstanding, 0);
 
-    const hasErrors = allocations.some((a) => a.amt > a.inv.outstanding);
+    const hasErrors = allocations.some((a: any) => a.amt > a.inv.outstanding);
     const canSubmit =
         !!distributorId &&
         allocations.length > 0 &&
@@ -119,7 +119,7 @@ export function PayDistributorSheet({ open, onClose, preSelectedDistributorId, o
                 paymentMode,
                 referenceNo: paymentMode !== 'cash' ? referenceNo : undefined,
                 notes: notes || undefined,
-                allocations: allocations.map((a) => ({
+                allocations: allocations.map((a: any) => ({
                     purchaseInvoiceId: a.inv.id,
                     allocatedAmount: a.amt,
                 })),
@@ -142,7 +142,7 @@ export function PayDistributorSheet({ open, onClose, preSelectedDistributorId, o
     }
 
     return (
-        <Sheet open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+        <Sheet open={open} onOpenChange={(v: boolean) => { if (!v) onClose(); }}>
             <SheetContent side="right" className="flex flex-col h-full p-0 sm:max-w-xl w-full">
 
                 {/* Header */}
@@ -183,7 +183,7 @@ export function PayDistributorSheet({ open, onClose, preSelectedDistributorId, o
                                     <SelectValue placeholder="Choose distributor…" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {(distributors ?? []).map((d) => (
+                                    {(distributors ?? []).map((d: any) => (
                                         <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
                                     ))}
                                 </SelectContent>
@@ -239,7 +239,7 @@ export function PayDistributorSheet({ open, onClose, preSelectedDistributorId, o
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-border">
-                                                {(unpaidInvoices ?? []).map((inv) => {
+                                                {(unpaidInvoices ?? []).map((inv: any) => {
                                                     const amt = parseFloat(amounts[inv.id] ?? '0') || 0;
                                                     const overPay = amt > inv.outstanding;
                                                     const fullPay = amt > 0 && amt === inv.outstanding;
@@ -324,7 +324,7 @@ export function PayDistributorSheet({ open, onClose, preSelectedDistributorId, o
                                     <input
                                         type="date"
                                         value={date}
-                                        onChange={(e) => setDate(e.target.value)}
+                                        onChange={(e: any) => setDate(e.target.value)}
                                         className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                                     />
                                 </div>
@@ -362,7 +362,7 @@ export function PayDistributorSheet({ open, onClose, preSelectedDistributorId, o
                                         <Label className="text-sm">{refLabel(paymentMode)} <span className="text-red-500">*</span></Label>
                                         <Input
                                             value={referenceNo}
-                                            onChange={(e) => setReferenceNo(e.target.value)}
+                                            onChange={(e: any) => setReferenceNo(e.target.value)}
                                             placeholder={`Enter ${refLabel(paymentMode).toLowerCase()}…`}
                                             className="font-mono text-sm"
                                         />
@@ -374,7 +374,7 @@ export function PayDistributorSheet({ open, onClose, preSelectedDistributorId, o
                                     <Label className="text-sm">Notes <span className="text-muted-foreground font-normal">(optional)</span></Label>
                                     <textarea
                                         value={notes}
-                                        onChange={(e) => setNotes(e.target.value)}
+                                        onChange={(e: any) => setNotes(e.target.value)}
                                         rows={2}
                                         placeholder="Any remarks…"
                                         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"

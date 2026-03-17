@@ -1,19 +1,4 @@
 import {
-    mockAuthApi,
-    mockProductsApi,
-    mockSalesApi,
-    mockCreditApi,
-    mockDashboardApi,
-    mockStaffApi,
-    mockInventoryApi,
-    mockPurchasesApi,
-    mockDistributorsApi,
-    mockCustomersApi,
-    mockAttendanceApi,
-    mockReportsApi,
-    mockAccountsApi,
-} from './mockApi';
-import {
     AuthResponse,
     ProductSearchResult,
     SaleInvoice,
@@ -27,20 +12,41 @@ import {
     AttendanceRecord,
 } from '../types';
 
-const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK === 'true';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
 let authToken: string | null = null;
 
-// Helper to get authorization headers
+function getStoredToken(): string | null {
+    if (authToken) return authToken;
+    if (typeof document === 'undefined') return null;
+    // Use substring to avoid splitting on '=' inside the JWT value itself
+    const row = document.cookie.split('; ').find(r => r.startsWith('access_token='));
+    return row ? row.substring('access_token='.length) : null;
+}
+
 function getHeaders(includeAuth = true): HeadersInit {
-    const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-    };
-    if (includeAuth && authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`;
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+    if (includeAuth) {
+        const token = getStoredToken();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
     }
     return headers;
+}
+
+function handle401() {
+    authToken = null;
+    if (typeof document !== 'undefined') {
+        document.cookie = 'access_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    }
+    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+    }
+}
+
+async function assertOk(response: Response): Promise<void> {
+    if (response.ok) return;
+    if (response.status === 401) handle401();
+    throw await response.json().catch(() => ({ detail: `HTTP ${response.status}` }));
 }
 
 // Helper to set auth token (called after login)
@@ -61,46 +67,101 @@ const realAuthApi = {
             headers: getHeaders(false),
             body: JSON.stringify({ phone, password }),
         });
-        if (!response.ok) {
-            const error = await response.json();
-            throw error;
-        }
+        await assertOk(response);
         const data = await response.json();
         authToken = data.access;
+        const u = data.user;
         return {
             access: data.access,
             refresh: data.refresh,
             user: {
-                id: data.user.id,
-                name: data.user.name,
-                phone: data.user.phone,
-                role: data.user.role,
-                staffPin: data.user.staff_pin,
-                maxDiscount: data.user.max_discount,
-                canEditRate: data.user.can_edit_rate,
-                canViewPurchaseRates: data.user.can_view_purchase_rates,
-                canCreatePurchases: data.user.can_create_purchases,
-                canAccessReports: data.user.can_access_reports,
-                outletId: data.user.outlet_id,
+                id: u.id,
+                name: u.name,
+                phone: u.phone,
+                role: u.role,
+                staffPin: u.staffPin,
+                maxDiscount: u.maxDiscount,
+                canEditRate: u.canEditRate,
+                canViewPurchaseRates: u.canViewPurchaseRates,
+                canCreatePurchases: u.canCreatePurchases,
+                canAccessReports: u.canAccessReports,
+                outletId: u.outletId,
+                organizationId: u.organizationId ?? undefined,
+                isSuperAdmin: u.isSuperAdmin ?? false,
                 outlet: {
-                    id: data.user.outlet.id,
-                    organizationId: data.user.outlet.organization_id,
-                    name: data.user.outlet.name,
-                    address: data.user.outlet.address,
-                    city: data.user.outlet.city,
-                    state: data.user.outlet.state,
-                    pincode: data.user.outlet.pincode,
-                    gstin: data.user.outlet.gstin,
-                    drugLicenseNo: data.user.outlet.drug_license_no,
-                    phone: data.user.outlet.phone,
-                    isActive: data.user.outlet.is_active,
-                    createdAt: data.user.outlet.created_at,
-                },
+                    ...u.outlet,
+                    id: u.outlet.id,
+                    name: u.outlet.name,
+                    city: u.outlet.city,
+                    state: u.outlet.state,
+                } as any,
             },
         };
     },
     logout: async (): Promise<void> => {
         authToken = null;
+    },
+    refresh: async (refreshToken: string): Promise<{ access: string }> => {
+        const response = await fetch(`${API_URL}/auth/refresh/`, {
+            method: 'POST',
+            headers: getHeaders(false),
+            body: JSON.stringify({ refresh: refreshToken }),
+        });
+        await assertOk(response);
+        const data = await response.json();
+        authToken = data.access;
+        return { access: data.access };
+    },
+    me: async (): Promise<any> => {
+        const response = await fetch(`${API_URL}/auth/me/`, {
+            headers: getHeaders(true),
+        });
+        await assertOk(response);
+        const data = await response.json();
+        return {
+            id: data.id,
+            name: data.name,
+            phone: data.phone,
+            role: data.role,
+            staffPin: data.staffPin,
+            maxDiscount: data.maxDiscount,
+            canEditRate: data.canEditRate,
+            canViewPurchaseRates: data.canViewPurchaseRates,
+            canCreatePurchases: data.canCreatePurchases,
+            canAccessReports: data.canAccessReports,
+            outletId: data.outletId,
+            organizationId: data.organizationId ?? undefined,
+            isSuperAdmin: data.isSuperAdmin ?? false,
+            outlet: data.outlet,
+        };
+    },
+    changePin: async (currentPin: string, newPin: string) => {
+        const response = await fetch(`${API_URL}/auth/me/pin/`, {
+            method: 'PATCH',
+            headers: getHeaders(),
+            body: JSON.stringify({ currentPin, newPin }),
+        });
+        await assertOk(response);
+        return response.json();
+    }
+};
+
+const realSettingsApi = {
+    getSettings: async (outletId: string) => {
+        const response = await fetch(`${API_URL}/outlet/settings/?outletId=${outletId}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
+    },
+    updateSettings: async (outletId: string, payload: any) => {
+        const response = await fetch(`${API_URL}/outlet/settings/`, {
+            method: 'PATCH',
+            headers: getHeaders(),
+            body: JSON.stringify({ ...payload, outletId }),
+        });
+        await assertOk(response);
+        return response.json();
     }
 };
 
@@ -110,7 +171,7 @@ const realProductsApi = {
             `${API_URL}/products/search/?q=${encodeURIComponent(q)}&outletId=${outletId}`,
             { headers: getHeaders() }
         );
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         const data = await response.json();
         return (data.data || []).map((item: any) => ({
             id: item.id,
@@ -133,9 +194,9 @@ const realProductsApi = {
             `${API_URL}/inventory/?outletId=${outletId}&search=${productId}`,
             { headers: getHeaders() }
         );
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         const data = await response.json();
-        return data.data || [];
+        return Array.isArray(data) ? data : (data.data || []);
     }
 };
 
@@ -152,7 +213,7 @@ const realInventoryApi = {
         if (filters?.pageSize) url += `&pageSize=${filters.pageSize}`;
 
         const response = await fetch(url, { headers: getHeaders() });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     getBatches: async (productId: string, outletId: string) => {
@@ -160,16 +221,16 @@ const realInventoryApi = {
             `${API_URL}/inventory/?outletId=${outletId}&search=${productId}`,
             { headers: getHeaders() }
         );
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         const data = await response.json();
-        return data.data || [];
+        return Array.isArray(data) ? data : (data.data || []);
     },
     getExpiryReport: async (outletId: string) => {
         const response = await fetch(
             `${API_URL}/inventory/?outletId=${outletId}&expiringSoon=true`,
             { headers: getHeaders() }
         );
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     getLowStock: async (outletId: string) => {
@@ -177,11 +238,31 @@ const realInventoryApi = {
             `${API_URL}/inventory/?outletId=${outletId}&lowStock=true`,
             { headers: getHeaders() }
         );
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
+        return response.json();
+    },
+    getAlerts: async (outletId: string) => {
+        let url = `${API_URL}/inventory/alerts/`;
+        if (outletId) url += `?outletId=${outletId}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
         return response.json();
     },
     adjustStock: async (payload: any) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Stock adjustment not yet implemented' } };
+        const response = await fetch(`${API_URL}/inventory/adjust/`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({
+                batchId: payload.batchId,
+                type: payload.type,
+                qty: payload.qty,
+                reason: payload.reason,
+                pin: payload.pin,
+                outletId: payload.outletId,
+            }),
+        });
+        await assertOk(response);
+        return response.json();
     }
 };
 
@@ -200,7 +281,7 @@ const realSalesApi = {
                 credit_given: payload.creditGiven || 0,
             }),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     list: async (outletId: string, params?: any): Promise<PaginatedResponse<SaleInvoice>> => {
@@ -211,19 +292,48 @@ const realSalesApi = {
         if (params?.endDate) url += `&endDate=${params.endDate}`;
 
         const response = await fetch(url, { headers: getHeaders() });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     getById: async (id: string): Promise<SaleInvoice> => {
         const response = await fetch(`${API_URL}/sales/${id}/`, { headers: getHeaders() });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
-    getPdf: async (id: string): Promise<null> => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'PDF generation not yet implemented' } };
+    getPdf: async (id: string, outletId?: string): Promise<any> => {
+        let url = `${API_URL}/sales/${id}/print/`;
+        if (outletId) url += `?outletId=${outletId}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
     },
-    createReturn: async (id: string, payload: any): Promise<SaleInvoice> => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Sales returns not yet implemented' } };
+    createReturn: async (payload: any): Promise<any> => {
+        const response = await fetch(`${API_URL}/sales/return/`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(payload),
+        });
+        await assertOk(response);
+        return response.json();
+    },
+    getSalesReturns: async (outletId: string, filters?: any): Promise<any> => {
+        let url = `${API_URL}/sales/returns/?outletId=${outletId}`;
+        if (filters?.from) url += `&from=${filters.from}`;
+        if (filters?.to) url += `&to=${filters.to}`;
+        if (filters?.customerId) url += `&customerId=${filters.customerId}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
+    },
+    getReturnById: async (id: string): Promise<any> => {
+        const response = await fetch(`${API_URL}/sales/returns/${id}/`, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
+    },
+    getReturnPdf: async (id: string): Promise<any> => {
+        const response = await fetch(`${API_URL}/sales/returns/${id}/print/`, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
     }
 };
 
@@ -232,14 +342,14 @@ const realCreditApi = {
         const response = await fetch(`${API_URL}/credit/?outletId=${outletId}`, {
             headers: getHeaders(),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     list: async (outletId: string) => {
         const response = await fetch(`${API_URL}/credit/?outletId=${outletId}`, {
             headers: getHeaders(),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         const data = await response.json();
         return data.data || [];
     },
@@ -247,14 +357,14 @@ const realCreditApi = {
         const response = await fetch(`${API_URL}/credit/${accountId}/transactions/`, {
             headers: getHeaders(),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     getLedger: async (accountId: string) => {
         const response = await fetch(`${API_URL}/credit/${accountId}/ledger/`, {
             headers: getHeaders(),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     recordPayment: async (payload: any): Promise<CreditAccount> => {
@@ -268,24 +378,35 @@ const realCreditApi = {
                 payment_date: payload.paymentDate,
             }),
         });
-        if (!response.ok) {
-            const error = await response.json();
-            throw error;
-        }
+        await assertOk(response);
         return response.json();
     },
-    updateCreditLimit: async (accountId: string, newLimit: number) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Credit limit update not yet implemented' } };
+    updateCreditLimit: async (customerId: string, newLimit: number, outletId?: string) => {
+        const body: any = { creditLimit: newLimit };
+        if (outletId) body.outletId = outletId;
+        const response = await fetch(`${API_URL}/credit/${customerId}/limit/`, {
+            method: 'PATCH',
+            headers: getHeaders(),
+            body: JSON.stringify(body),
+        });
+        await assertOk(response);
+        return response.json();
     },
     getAgingSummary: async (outletId: string) => {
         const response = await fetch(`${API_URL}/credit/?outletId=${outletId}`, {
             headers: getHeaders(),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
-    sendReminder: async (accountId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Reminder sending not yet implemented' } };
+    sendReminder: async (accountId: string, payload?: { channel?: string; message?: string }) => {
+        const response = await fetch(`${API_URL}/credit/${accountId}/reminder/`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(payload || {}),
+        });
+        await assertOk(response);
+        return response.json();
     }
 };
 
@@ -295,7 +416,7 @@ const realDashboardApi = {
             `${API_URL}/dashboard/daily/?outletId=${outletId}&date=${date}`,
             { headers: getHeaders() }
         );
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     getAlerts: async (outletId: string): Promise<DashboardAlerts> => {
@@ -303,7 +424,7 @@ const realDashboardApi = {
             `${API_URL}/dashboard/daily/?outletId=${outletId}&date=${new Date().toISOString().split('T')[0]}`,
             { headers: getHeaders() }
         );
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         const data = await response.json();
         return data.alerts || {};
     }
@@ -311,16 +432,61 @@ const realDashboardApi = {
 
 const realStaffApi = {
     list: async (outletId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Staff list not yet implemented' } };
+        const response = await fetch(`${API_URL}/staff/?outletId=${outletId}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
     },
-    verifyPin: async (staffId: string, pin: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'PIN verification not yet implemented' } };
+    lookupByPin: async (pin: string, outletId: string) => {
+        const response = await fetch(`${API_URL}/staff/lookup-by-pin/`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ pin, outletId }),
+        });
+        await assertOk(response);
+        return response.json();
     },
     getPerformance: async (staffId: string, startDate: string, endDate: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Performance metrics not yet implemented' } };
+        const params = new URLSearchParams({ startDate, endDate });
+        const response = await fetch(`${API_URL}/staff/${staffId}/performance/?${params}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
     },
     getLeaderboard: async (outletId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Leaderboard not yet implemented' } };
+        const response = await fetch(`${API_URL}/staff/leaderboard/?outletId=${outletId}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
+    },
+    create: async (payload: any) => {
+        const response = await fetch(`${API_URL}/staff/create/`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(payload),
+        });
+        await assertOk(response);
+        return response.json();
+    },
+    update: async (staffId: string, payload: any) => {
+        const response = await fetch(`${API_URL}/staff/${staffId}/`, {
+            method: 'PATCH',
+            headers: getHeaders(),
+            body: JSON.stringify(payload),
+        });
+        await assertOk(response);
+        return response.json();
+    },
+    delete: async (staffId: string) => {
+        const response = await fetch(`${API_URL}/staff/${staffId}/`, {
+            method: 'DELETE',
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
     }
 };
 
@@ -334,12 +500,12 @@ const realPurchasesApi = {
         if (filters?.pageSize) url += `&pageSize=${filters.pageSize}`;
 
         const response = await fetch(url, { headers: getHeaders() });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     getById: async (id: string): Promise<PurchaseInvoiceFull> => {
         const response = await fetch(`${API_URL}/purchases/${id}/`, { headers: getHeaders() });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     create: async (payload: CreatePurchasePayload): Promise<PurchaseInvoiceFull> => {
@@ -347,23 +513,27 @@ const realPurchasesApi = {
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify({
-                outlet_id: payload.outletId,
-                distributor_id: payload.distributorId,
-                invoice_no: payload.invoiceNo,
-                invoice_date: payload.invoiceDate,
-                due_date: payload.dueDate,
-                purchase_type: payload.purchaseType,
+                outletId: payload.outletId,
+                distributorId: payload.distributorId,
+                invoiceNo: payload.invoiceNo,
+                invoiceDate: payload.invoiceDate,
+                dueDate: payload.dueDate,
+                purchaseType: payload.purchaseType,
+                purchaseOrderRef: payload.purchaseOrderRef,
+                godown: payload.godown,
+                notes: payload.notes,
                 items: payload.items,
                 subtotal: payload.subtotal,
-                discount_amount: payload.discountAmount,
-                gst_amount: payload.gstAmount,
-                cess_amount: payload.cessAmount,
+                discountAmount: payload.discountAmount,
+                taxableAmount: payload.taxableAmount,
+                gstAmount: payload.gstAmount,
+                cessAmount: payload.cessAmount,
                 freight: payload.freight,
-                round_off: payload.roundOff,
-                grand_total: payload.grandTotal,
+                roundOff: payload.roundOff,
+                grandTotal: payload.grandTotal,
             }),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     createPurchase: async (payload: any): Promise<PurchaseInvoiceFull> => {
@@ -374,15 +544,17 @@ const realPurchasesApi = {
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify({
-                distributor_id: payload.distributorId,
+                distributorId: payload.distributorId,
                 date: payload.date,
-                total_amount: payload.totalAmount,
-                payment_mode: payload.paymentMode,
+                totalAmount: payload.totalAmount,
+                paymentMode: payload.paymentMode,
+                referenceNo: payload.referenceNo,
+                notes: payload.notes,
                 allocations: payload.allocations,
-                outlet_id: payload.outletId,
+                outletId: payload.outletId,
             }),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     }
 };
@@ -392,15 +564,15 @@ const realDistributorsApi = {
         const response = await fetch(`${API_URL}/purchases/distributors/?outletId=${outletId}`, {
             headers: getHeaders(),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         const data = await response.json();
-        return data.data || [];
+        return Array.isArray(data) ? data : (data.data || []);
     },
     getById: async (id: string) => {
         const response = await fetch(`${API_URL}/purchases/distributors/${id}/`, {
             headers: getHeaders(),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     getLedger: async (distributorId: string): Promise<DistributorLedgerEntry[]> => {
@@ -408,29 +580,31 @@ const realDistributorsApi = {
             `${API_URL}/purchases/distributors/${distributorId}/ledger/`,
             { headers: getHeaders() }
         );
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         const data = await response.json();
-        return data.data || [];
+        // Backend returns { distributor, ledger: [...], summary }
+        return data.ledger || data.data || [];
     },
     create: async (payload: any) => {
         const response = await fetch(`${API_URL}/purchases/distributors/`, {
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify({
-                outlet_id: payload.outletId,
+                outletId: payload.outletId,
                 name: payload.name,
                 gstin: payload.gstin,
+                drugLicenseNo: payload.drugLicenseNo,
                 phone: payload.phone,
                 email: payload.email,
                 address: payload.address,
                 city: payload.city,
                 state: payload.state,
-                credit_days: payload.creditDays,
-                opening_balance: payload.openingBalance,
-                balance_type: payload.balanceType,
+                creditDays: payload.creditDays,
+                openingBalance: payload.openingBalance,
+                balanceType: payload.balanceType,
             }),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     update: async (id: string, payload: any) => {
@@ -439,7 +613,7 @@ const realDistributorsApi = {
             headers: getHeaders(),
             body: JSON.stringify(payload),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     }
 };
@@ -451,20 +625,35 @@ const realCustomersApi = {
         if (filters?.page) url += `&page=${filters.page}`;
 
         const response = await fetch(url, { headers: getHeaders() });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         const data = await response.json();
         return data.data || [];
     },
     getById: async (id: string) => {
         const response = await fetch(`${API_URL}/customers/${id}/`, { headers: getHeaders() });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
-    getPurchaseHistory: async (customerId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Purchase history not yet implemented' } };
+    getPurchaseHistory: async (customerId: string, outletId?: string) => {
+        let url = `${API_URL}/customers/${customerId}/purchase-history/`;
+        if (outletId) url += `?outletId=${outletId}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
     },
-    getRefillAlerts: async (customerId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Refill alerts not yet implemented' } };
+    getRefillAlerts: async (outletId: string) => {
+        const response = await fetch(`${API_URL}/customers/refill-alerts/?outletId=${outletId}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
+    },
+    getChronicMedicines: async (customerId: string) => {
+        const response = await fetch(`${API_URL}/customers/${customerId}/chronic-medicines/`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
     },
     create: async (payload: any) => {
         const response = await fetch(`${API_URL}/customers/`, {
@@ -478,7 +667,7 @@ const realCustomersApi = {
                 dob: payload.dob,
             }),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     update: async (id: string, payload: any) => {
@@ -487,115 +676,360 @@ const realCustomersApi = {
             headers: getHeaders(),
             body: JSON.stringify(payload),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     getDoctors: async (outletId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Doctor list not yet implemented' } };
+        const response = await fetch(`${API_URL}/doctors/?outletId=${outletId}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
+    },
+    createDoctor: async (payload: any) => {
+        const response = await fetch(`${API_URL}/doctors/`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(payload),
+        });
+        await assertOk(response);
+        return response.json();
     }
 };
 
 const realAttendanceApi = {
     getMonthlyRecords: async (outletId: string, staffId: string, month: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Monthly records not yet implemented' } };
+        let url = `${API_URL}/attendance/?outletId=${outletId}&month=${month}`;
+        if (staffId) url += `&staffId=${staffId}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
     },
     getTodayRecords: async (outletId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Today records not yet implemented' } };
+        const response = await fetch(`${API_URL}/attendance/today/?outletId=${outletId}`, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
     },
     getMonthlySummaries: async (outletId: string, staffId: string, month: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Monthly summaries not yet implemented' } };
+        const response = await fetch(`${API_URL}/attendance/summary/?outletId=${outletId}&month=${month}`, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
     },
     checkIn: async (payload: any): Promise<AttendanceRecord> => {
         const response = await fetch(`${API_URL}/attendance/check-in/`, {
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify({
-                outlet_id: payload.outletId,
-                staff_id: payload.staffId,
-                staff_pin: payload.staffPin,
+                outletId: payload.outletId,
+                staffId: payload.staffId,
                 type: payload.type,
-                selfie_url: payload.selfieUrl,
+                photoBase64: payload.photoBase64 ?? null,
             }),
         });
-        if (!response.ok) throw await response.json();
+        await assertOk(response);
         return response.json();
     },
     checkOut: async (payload: any): Promise<AttendanceRecord> => {
-        return realAttendanceApi.checkIn(payload);
+        const response = await fetch(`${API_URL}/attendance/check-in/`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({
+                outletId: payload.outletId,
+                staffId: payload.staffId,
+                type: 'check_out',
+                photoBase64: payload.photoBase64 ?? null,
+            }),
+        });
+        await assertOk(response);
+        return response.json();
     },
     markManual: async (payload: any) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Manual marking not yet implemented' } };
+        const response = await fetch(`${API_URL}/attendance/manual/`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(payload),
+        });
+        await assertOk(response);
+        return response.json();
     }
 };
 
 const realReportsApi = {
     getSalesReport: async (outletId: string, filters: any) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Sales report not yet implemented' } };
+        // If filters has date range, fetch reports for each day in range
+        // Otherwise, just fetch for today
+        const dates: string[] = [];
+        if (filters?.from && filters?.to) {
+            const currentDate = new Date(filters.from);
+            const endDate = new Date(filters.to);
+            while (currentDate <= endDate) {
+                dates.push(currentDate.toISOString().split('T')[0]);
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+        } else {
+            dates.push(new Date().toISOString().split('T')[0]);
+        }
+
+        // Fetch report for each date and aggregate
+        const allRows: any[] = [];
+        const allChartData: any[] = [];
+
+        for (const date of dates) {
+            const response = await fetch(
+                `${API_URL}/reports/sales/daily/?outletId=${outletId}&date=${date}`,
+                { headers: getHeaders() }
+            );
+            await assertOk(response);
+            const data = await response.json();
+            if (data.rows) allRows.push(...data.rows);
+            if (data.chartData) allChartData.push(...data.chartData);
+        }
+
+        // Calculate summary from aggregated rows
+        const totalSales = allRows.reduce((sum: number, row: any) => sum + (row.totalSales || 0), 0);
+        const totalBills = allRows.reduce((sum: number, row: any) => sum + (row.invoiceCount || 0), 0);
+        const totalDiscount = allRows.reduce((sum: number, row: any) => sum + (row.totalDiscount || 0), 0);
+        const totalTax = allRows.reduce((sum: number, row: any) => sum + (row.totalTax || 0), 0);
+
+        return {
+            rows: allRows,
+            summary: [
+                { label: 'Total Sales', value: `₹${totalSales.toLocaleString()}`, change: 0, trend: 'neutral' },
+                { label: 'Total Bills', value: totalBills.toString(), change: 0, trend: 'neutral' },
+                { label: 'Avg Bill Value', value: `₹${totalBills > 0 ? (totalSales / totalBills).toFixed(0) : 0}`, change: 0, trend: 'neutral' },
+                { label: 'GST Collected', value: `₹${totalTax.toLocaleString()}`, change: 0, trend: 'neutral' },
+                { label: 'Total Discount', value: `₹${totalDiscount.toLocaleString()}`, change: 0, trend: 'neutral' },
+            ],
+            chartData: allChartData,
+        };
     },
     getGSTReport: async (outletId: string, filters: any) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'GST report not yet implemented' } };
+        const params = new URLSearchParams({
+            outletId,
+            from: filters.from,
+            to: filters.to,
+        });
+        const response = await fetch(`${API_URL}/reports/gst/gstr1/?${params}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
     },
     getStockValuation: async (outletId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Stock valuation not yet implemented' } };
+        const response = await fetch(`${API_URL}/reports/inventory/valuation/?outletId=${outletId}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
     },
-    getExpiryReport: async (outletId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Expiry report not yet implemented' } };
+    getSalesSummary: async (outletId: string, filters?: any) => {
+        let url = `${API_URL}/reports/sales/summary/?outletId=${outletId}`;
+        if (filters?.from) url += `&from=${filters.from}`;
+        if (filters?.to) url += `&to=${filters.to}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
+    },
+    getGSTR2Report: async (outletId: string, filters: any) => {
+        const params = new URLSearchParams({ outletId, from: filters.from, to: filters.to });
+        const response = await fetch(`${API_URL}/reports/gst/gstr2/?${params}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
+    },
+    getGSTR3BReport: async (outletId: string, month: string) => {
+        const response = await fetch(`${API_URL}/reports/gst/gstr3b/?outletId=${outletId}&month=${month}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
+    },
+    getExpiryReport: async (outletId: string, filters?: any) => {
+        let url = `${API_URL}/reports/expiry/?outletId=${outletId}`;
+        if (filters?.days) url += `&days=${filters.days}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
+    },
+    getInventoryMovement: async (outletId: string, filters: any) => {
+        const params = new URLSearchParams({ outletId, from: filters.from, to: filters.to });
+        if (filters?.productId) params.set('productId', filters.productId);
+        const response = await fetch(`${API_URL}/reports/inventory/movement/?${params}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
     },
     getStaffReport: async (outletId: string, filters: any) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Staff report not yet implemented' } };
+        const params = new URLSearchParams({ outletId, from: filters.from, to: filters.to });
+        const response = await fetch(`${API_URL}/reports/staff/performance/?${params}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
     },
     getPurchaseReport: async (outletId: string, filters: any) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Purchase report not yet implemented' } };
-    }
+        // No dedicated endpoint yet — delegate to purchases list
+        const params = new URLSearchParams({ outletId, startDate: filters.from, endDate: filters.to });
+        const response = await fetch(`${API_URL}/purchases/?${params}`, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
+    },
+    getBalanceSheet: async (outletId: string) => {
+        const response = await fetch(`${API_URL}/reports/balance-sheet/?outletId=${outletId}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        const data = await response.json();
+        return data.data;
+    },
+    reconcileGSTR2A: async (payload: { gstin: string; from: string; to: string }) => {
+        const response = await fetch(`${API_URL}/reports/gstr2a/`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(payload),
+        });
+        await assertOk(response);
+        const data = await response.json();
+        return data.data;
+    },
 };
 
 const realAccountsApi = {
     getDistributorOutstanding: async (outletId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Distributor outstanding not yet implemented' } };
+        const response = await fetch(`${API_URL}/outstanding/distributors/?outletId=${outletId}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
     },
     getCustomerOutstanding: async (outletId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Customer outstanding not yet implemented' } };
+        const response = await fetch(`${API_URL}/outstanding/customers/?outletId=${outletId}`, {
+            headers: getHeaders(),
+        });
+        await assertOk(response);
+        return response.json();
     },
-    getUnpaidInvoices: async (outletId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Unpaid invoices not yet implemented' } };
+    getUnpaidInvoices: async (distributorId: string, outletId?: string) => {
+        let url = `${API_URL}/purchases/distributors/${distributorId}/outstanding/`;
+        if (outletId) url += `?outletId=${outletId}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
     },
     createPayment: async (payload: any) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Payment creation not yet implemented' } };
+        const response = await fetch(`${API_URL}/purchases/payments/`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(payload),
+        });
+        await assertOk(response);
+        return response.json();
     },
-    getPayments: async (outletId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Payments not yet implemented' } };
+    getPayments: async (outletId: string, filters?: any) => {
+        let url = `${API_URL}/purchases/payments/?outletId=${outletId}`;
+        if (filters?.distributorId) url += `&distributorId=${filters.distributorId}`;
+        if (filters?.from) url += `&from=${filters.from}`;
+        if (filters?.to) url += `&to=${filters.to}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
     },
     createReceipt: async (payload: any) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Receipt creation not yet implemented' } };
+        const response = await fetch(`${API_URL}/receipts/`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(payload),
+        });
+        await assertOk(response);
+        return response.json();
     },
-    getReceipts: async (outletId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Receipts not yet implemented' } };
+    getReceipts: async (outletId: string, filters?: any) => {
+        let url = `${API_URL}/receipts/?outletId=${outletId}`;
+        if (filters?.customerId) url += `&customerId=${filters.customerId}`;
+        if (filters?.from) url += `&from=${filters.from}`;
+        if (filters?.to) url += `&to=${filters.to}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
     },
-    getExpenses: async (outletId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Expenses not yet implemented' } };
+    getExpenses: async (outletId: string, filters?: any) => {
+        let url = `${API_URL}/expenses/?outletId=${outletId}`;
+        if (filters?.from) url += `&from=${filters.from}`;
+        if (filters?.to) url += `&to=${filters.to}`;
+        if (filters?.head) url += `&head=${filters.head}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
     },
     createExpense: async (payload: any) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Expense creation not yet implemented' } };
+        const response = await fetch(`${API_URL}/expenses/`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(payload),
+        });
+        await assertOk(response);
+        return response.json();
     },
     getDistributorLedger: async (distributorId: string) => {
         return realDistributorsApi.getLedger(distributorId);
     },
-    getCustomerLedger: async (customerId: string) => {
-        throw { error: { code: 'NOT_IMPLEMENTED', message: 'Customer ledger not yet implemented' } };
-    }
+    getCustomerLedger: async (customerId: string, outletId?: string, filters?: any) => {
+        let url = `${API_URL}/customers/${customerId}/ledger/`;
+        const params: string[] = [];
+        if (outletId) params.push(`outletId=${outletId}`);
+        if (filters?.from) params.push(`from=${filters.from}`);
+        if (filters?.to) params.push(`to=${filters.to}`);
+        if (params.length > 0) url += '?' + params.join('&');
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
+    },
+    getCustomerUnpaidInvoices: async (customerId: string) => {
+        const url = `${API_URL}/customers/${customerId}/outstanding/`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
+    },
 };
 
-// Export conditional APIs based on USE_MOCK flag
-export const authApi = USE_MOCK ? mockAuthApi : realAuthApi;
-export const productsApi = USE_MOCK ? mockProductsApi : realProductsApi;
-export const salesApi = USE_MOCK ? mockSalesApi : realSalesApi;
-export const creditApi = USE_MOCK ? mockCreditApi : realCreditApi;
-export const dashboardApi = USE_MOCK ? mockDashboardApi : realDashboardApi;
-export const staffApi = USE_MOCK ? mockStaffApi : realStaffApi;
-export const inventoryApi = USE_MOCK ? mockInventoryApi : realInventoryApi;
-export const purchasesApi = USE_MOCK ? mockPurchasesApi : realPurchasesApi;
-export const distributorsApi = USE_MOCK ? mockDistributorsApi : realDistributorsApi;
-export const customersApi = USE_MOCK ? mockCustomersApi : realCustomersApi;
-export const attendanceApi = USE_MOCK ? mockAttendanceApi : realAttendanceApi;
-export const reportsApi = USE_MOCK ? mockReportsApi : realReportsApi;
-export const accountsApi = USE_MOCK ? mockAccountsApi : realAccountsApi;
+const realChainApi = {
+    listOrganizations: async () => {
+        const response = await fetch(`${API_URL}/organizations/`, { headers: getHeaders() });
+        await assertOk(response);
+        const data = await response.json();
+        return data.data;
+    },
+    getOrganization: async (id: string) => {
+        const response = await fetch(`${API_URL}/organizations/${id}/`, { headers: getHeaders() });
+        await assertOk(response);
+        const data = await response.json();
+        return data.data;
+    },
+    getChainDashboard: async (orgId: string, from?: string, to?: string) => {
+        let url = `${API_URL}/organizations/dashboard/?orgId=${orgId}`;
+        if (from) url += `&from=${from}`;
+        if (to) url += `&to=${to}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        const data = await response.json();
+        return data.data;
+    },
+};
+
+export const authApi = realAuthApi;
+export const productsApi = realProductsApi;
+export const salesApi = realSalesApi;
+export const creditApi = realCreditApi;
+export const dashboardApi = realDashboardApi;
+export const staffApi = realStaffApi;
+export const inventoryApi = realInventoryApi;
+export const purchasesApi = realPurchasesApi;
+export const distributorsApi = realDistributorsApi;
+export const customersApi = realCustomersApi;
+export const attendanceApi = realAttendanceApi;
+export const reportsApi = realReportsApi;
+export const accountsApi = realAccountsApi;
+export const settingsApi = realSettingsApi;
+export const chainApi = realChainApi;

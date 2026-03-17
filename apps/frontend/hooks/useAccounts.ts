@@ -34,6 +34,15 @@ export function useUnpaidInvoices(distributorId: string) {
     });
 }
 
+export function useCustomerUnpaidInvoices(customerId: string) {
+    return useQuery({
+        queryKey: ['customer-unpaid-invoices', customerId],
+        queryFn: () => accountsApi.getCustomerUnpaidInvoices(customerId).then(res => res.data),
+        staleTime: 1000 * 60 * 2,
+        enabled: !!customerId,
+    });
+}
+
 // ─── Payments ─────────────────────────────────────────────────────────────────
 
 export function useCreatePayment() {
@@ -42,7 +51,7 @@ export function useCreatePayment() {
     const userId   = useAuthStore((s) => s.user?.id ?? '');
     return useMutation({
         mutationFn: (payload: CreatePaymentPayload) =>
-            accountsApi.createPayment(outletId, payload, userId),
+            accountsApi.createPayment({ ...payload, outletId, userId }),
         onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: ['outstanding', 'distributors'] });
             queryClient.invalidateQueries({ queryKey: ['unpaid-invoices', variables.distributorId] });
@@ -70,7 +79,7 @@ export function useCreateReceipt() {
     const userId   = useAuthStore((s) => s.user?.id ?? '');
     return useMutation({
         mutationFn: (payload: CreateReceiptPayload) =>
-            accountsApi.createReceipt(outletId, payload, userId),
+            accountsApi.createReceipt({ ...payload, outletId, userId }),
         onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: ['outstanding', 'customers'] });
             queryClient.invalidateQueries({ queryKey: ['receipts'] });
@@ -107,7 +116,7 @@ export function useCreateExpense() {
     const userId   = useAuthStore((s) => s.user?.id ?? '');
     return useMutation({
         mutationFn: (payload: CreateExpensePayload) =>
-            accountsApi.createExpense(outletId, payload, userId),
+            accountsApi.createExpense({ ...payload, outletId, userId }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['expenses'] });
         },

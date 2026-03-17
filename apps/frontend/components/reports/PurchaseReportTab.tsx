@@ -51,7 +51,7 @@ export function PurchaseReportTab({ dateRange }: PurchaseReportTabProps) {
 
     const distributorPie = useMemo(() => {
         const map = new Map<string, number>();
-        rows.forEach(r => {
+        rows.forEach((r: any) => {
             map.set(r.distributorName, (map.get(r.distributorName) ?? 0) + r.grandTotal);
         });
         return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
@@ -189,7 +189,7 @@ export function PurchaseReportTab({ dateRange }: PurchaseReportTabProps) {
                                 }
                                 labelLine={false}
                             >
-                                {distributorPie.map((_, idx) => (
+                                {distributorPie.map((_: any, idx: number) => (
                                     <Cell key={idx} fill={DIST_COLORS[idx % DIST_COLORS.length]} />
                                 ))}
                             </Pie>

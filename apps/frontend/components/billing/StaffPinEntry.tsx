@@ -21,7 +21,7 @@ export function StaffPinEntry() {
         setIsLoading(true)
         setError(null)
         try {
-            const response = await staffApi.verifyPin(pin)
+            const response = await staffApi.lookupByPin(pin, user?.outletId ?? '')
             setIsSuccess(true)
             setTimeout(() => {
                 setActiveStaff(response)
@@ -34,7 +34,7 @@ export function StaffPinEntry() {
         } finally {
             setIsLoading(false)
         }
-    }, [setActiveStaff])
+    }, [setActiveStaff, user])
 
     const handleInput = useCallback((key: string) => {
         if (isLoading || isSuccess) return

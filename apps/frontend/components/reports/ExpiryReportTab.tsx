@@ -55,16 +55,16 @@ export function ExpiryReportTab() {
 
     const filteredRows = useMemo(() => {
         if (!data) return [];
-        return data.filter(r => r.daysRemaining <= filter);
+        return data.filter((r: any) => r.daysRemaining <= filter);
     }, [data, filter]);
 
     const counts = useMemo(() => {
         if (!data) return { expired: 0, critical: 0, warning: 0, caution: 0 };
         return {
-            expired:  data.filter(r => r.daysRemaining < 0).length,
-            critical: data.filter(r => r.daysRemaining >= 0 && r.daysRemaining <= 30).length,
-            warning:  data.filter(r => r.daysRemaining > 30 && r.daysRemaining <= 90).length,
-            caution:  data.filter(r => r.daysRemaining > 90 && r.daysRemaining <= 180).length,
+            expired:  data.filter((r: any) => r.daysRemaining < 0).length,
+            critical: data.filter((r: any) => r.daysRemaining >= 0 && r.daysRemaining <= 30).length,
+            warning:  data.filter((r: any) => r.daysRemaining > 30 && r.daysRemaining <= 90).length,
+            caution:  data.filter((r: any) => r.daysRemaining > 90 && r.daysRemaining <= 180).length,
         };
     }, [data]);
 

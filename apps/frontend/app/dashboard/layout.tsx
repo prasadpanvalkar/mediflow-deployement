@@ -14,20 +14,17 @@ import { cn } from '@/lib/utils';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
     const { isSidebarCollapsed, toggleSidebar } = useSettingsStore();
-    const { isAuthenticated } = useAuthStore();
+    const { isAuthenticated, _hasHydrated } = useAuthStore();
     const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false);
-    const [hydrated, setHydrated] = useState(false);
     const router = useRouter();
 
     useEffect(() => {
-        setHydrated(true);
-    }, []);
-
-    useEffect(() => {
-        if (hydrated && !isAuthenticated) {
+        console.log("DashboardLayout mounted. _hasHydrated:", _hasHydrated, "isAuthenticated:", isAuthenticated);
+        if (_hasHydrated && !isAuthenticated) {
+            console.log("Redirecting to login because hydrated but not authenticated");
             router.push('/login');
         }
-    }, [hydrated, isAuthenticated, router]);
+    }, [_hasHydrated, isAuthenticated, router]);
 
     useKeyboardShortcuts({
         'b': () => router.push('/dashboard/billing'),
@@ -35,7 +32,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         'Escape': () => { console.log('Escape triggered') },
     });
 
-    if (!hydrated || !isAuthenticated) {
+    if (!_hasHydrated || !isAuthenticated) {
         return <DashboardSkeleton />;
     }
 

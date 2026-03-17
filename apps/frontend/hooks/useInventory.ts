@@ -30,7 +30,7 @@ export function useExpiryReport(daysAhead: number = 90) {
 
     return useQuery({
         queryKey: ['inventory', 'expiry', outletId, daysAhead],
-        queryFn: () => inventoryApi.getExpiryReport(outletId, daysAhead),
+        queryFn: () => inventoryApi.getExpiryReport(outletId),
         staleTime: 1000 * 60 * 10,
     });
 }

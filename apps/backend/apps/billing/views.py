@@ -9,7 +9,10 @@ from rest_framework import status
 from decimal import Decimal
 from datetime import datetime, timedelta, date
 
-from apps.billing.models import SaleInvoice, SaleItem, ScheduleHRegister, CreditTransaction, CreditAccount, LedgerEntry
+from apps.billing.models import (
+    SaleInvoice, SaleItem, ScheduleHRegister, CreditTransaction, CreditAccount, LedgerEntry,
+    ReceiptEntry, ReceiptAllocation, ExpenseEntry, SalesReturn, SalesReturnItem,
+)
 from apps.billing.services import (
     fefo_batch_select,
     schedule_h_validate,
@@ -20,6 +23,23 @@ from apps.billing.services import (
 from apps.inventory.models import Batch, MasterProduct
 from apps.accounts.models import Staff, Customer
 from apps.core.models import Outlet
+from apps.billing.payment_services import (
+    create_receipt_payment, create_expense_entry, create_sales_return,
+    ReceiptServiceError, ExpenseServiceError, ReturnServiceError,
+)
+
+class NextInvoiceNumberView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId')
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        invoice_no = generate_invoice_number(outlet)
+        return Response({'invoiceNo': invoice_no}, status=status.HTTP_200_OK)
 
 logger = logging.getLogger(__name__)
 
@@ -775,14 +795,14 @@ class DashboardDailyView(APIView):
                 invoice__outlet=outlet,
                 invoice__invoice_date__date=target_date,
                 invoice__is_return=False
-            ).values('product_id', 'product_name').annotate(
+            ).values('batch__product_id', 'product_name').annotate(
                 total_qty=Sum('qty_strips'),
                 total_revenue=Sum('total_amount')
             ).order_by('-total_qty')[:5]
 
             top_selling = [
                 {
-                    'productId': str(item['product_id']) if item['product_id'] else 'custom',
+                    'productId': str(item['batch__product_id']) if item['batch__product_id'] else 'custom',
                     'name': item['product_name'],
                     'totalQty': int(item['total_qty'] or 0),
                     'totalRevenue': float(item['total_revenue'] or 0),
@@ -816,6 +836,33 @@ class DashboardDailyView(APIView):
                 'credit': credit_given,
             }
 
+            # Top Staff Leaderboard
+            staff_qs = sales.values('billed_by__id', 'billed_by__name', 'billed_by__role', 'billed_by__avatar_url').annotate(
+                billsCount=Count('id'),
+                totalSales=Sum('grand_total')
+            ).order_by('-totalSales')[:5]
+
+            staff_leaderboard = [
+                {
+                    'staffId': str(s['billed_by__id']) if s['billed_by__id'] else '',
+                    'name': s['billed_by__name'] or 'Unknown',
+                    'role': s['billed_by__role'] or 'billing_staff',
+                    'avatarUrl': s['billed_by__avatar_url'],
+                    'billsCount': s['billsCount'],
+                    'totalSales': float(s['totalSales'] or 0)
+                }
+                for s in staff_qs if s['billed_by__id']
+            ]
+
+            # Overall Discounts & GST
+            total_discount = float(sales.aggregate(v=Sum('discount_amount'))['v'] or 0)
+            gst_agg = sales.aggregate(
+                c=Sum('cgst_amount'), 
+                s=Sum('sgst_amount'), 
+                i=Sum('igst_amount')
+            )
+            total_gst = float((gst_agg['c'] or 0) + (gst_agg['s'] or 0) + (gst_agg['i'] or 0))
+
             # Alerts
             alerts = self._get_daily_alerts(outlet, target_date)
 
@@ -827,7 +874,10 @@ class DashboardDailyView(APIView):
                 'upiCollected': upi_collected,
                 'cardCollected': card_collected,
                 'creditGiven': credit_given,
+                'totalDiscount': total_discount,
+                'totalGst': total_gst,
                 'topSellingItems': top_selling,
+                'staffLeaderboard': staff_leaderboard,
                 'hourlySales': hourly_sales,
                 'paymentBreakdown': payment_breakdown,
                 'alerts': alerts,
@@ -1036,3 +1086,974 @@ class CreditAccountDetailView(APIView):
 
         logger.info(f"Retrieved credit account {account_id}")
         return Response(result, status=status.HTTP_200_OK)
+
+
+class SalePrintView(APIView):
+    """
+    GET /api/v1/sales/{id}/print/
+
+    Get sale invoice details for printing.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, sale_id, *args, **kwargs):
+        """
+        Get sale invoice for printing.
+
+        Query parameters:
+        - outletId: Outlet UUID to filter invoices
+
+        Returns:
+        {
+            "id": "...",
+            "invoiceNo": "...",
+            "invoiceDate": "...",
+            "grandTotal": ...,
+            "paymentMode": "...",
+            "customer": { "name", "phone", "address" } | null,
+            "outlet": { "name", "address", "phone", "gstin", "drugLicenseNo" },
+            "billedBy": "staff name",
+            "items": [{ "productName", "composition", "batchNo", "expiryDate", "qty", "mrp", "saleRate", "discountPct", "gstRate", "totalAmount" }]
+        }
+        """
+
+        outlet_id = request.query_params.get('outletId')
+
+        # Validate outlet
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response(
+                {'detail': f'Outlet {outlet_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Fetch sale invoice
+        try:
+            invoice = SaleInvoice.objects.select_related(
+                'customer', 'billed_by', 'outlet'
+            ).get(id=sale_id, outlet=outlet)
+        except SaleInvoice.DoesNotExist:
+            return Response(
+                {'detail': f'Sale {sale_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Fetch sale items
+        items = SaleItem.objects.filter(invoice=invoice).select_related('batch', 'batch__product')
+
+        # Build items list
+        items_list = []
+        for item in items:
+            items_list.append({
+                'productName': item.product_name,
+                'composition': item.composition,
+                'batchNo': item.batch_no,
+                'expiryDate': item.expiry_date.isoformat(),
+                'qty': item.qty_strips,
+                'mrp': float(item.mrp),
+                'saleRate': float(item.sale_rate),
+                'discountPct': float(item.discount_pct),
+                'gstRate': float(item.gst_rate),
+                'totalAmount': float(item.total_amount),
+            })
+
+        # Build response
+        result = {
+            'id': str(invoice.id),
+            'invoiceNo': invoice.invoice_no,
+            'invoiceDate': invoice.invoice_date.isoformat(),
+            'grandTotal': float(invoice.grand_total),
+            'paymentMode': invoice.payment_mode,
+            'customer': {
+                'name': invoice.customer.name,
+                'phone': invoice.customer.phone,
+                'address': invoice.customer.address,
+            } if invoice.customer else None,
+            'outlet': {
+                'name': outlet.name,
+                'address': outlet.address,
+                'phone': outlet.phone,
+                'gstin': outlet.gstin,
+                'drugLicenseNo': outlet.drug_license_no,
+            },
+            'billedBy': invoice.billed_by.name if invoice.billed_by else 'Unknown',
+            'items': items_list,
+        }
+
+        logger.info(f"Retrieved sale {sale_id} for printing")
+        return Response(result, status=status.HTTP_200_OK)
+
+class SaleDetailView(APIView):
+    """
+    GET /api/v1/sales/{id}/
+    
+    Get details of a specific sale invoice.
+    """
+    
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, sale_id, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId')
+        
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response(
+                {'detail': f'Outlet {outlet_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        try:
+            invoice = SaleInvoice.objects.select_related('customer', 'billed_by').get(id=sale_id, outlet=outlet)
+        except SaleInvoice.DoesNotExist:
+            return Response(
+                {'detail': f'Sale {sale_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        items = SaleItem.objects.filter(invoice=invoice).select_related('batch', 'batch__product')
+        
+        items_list = []
+        for item in items:
+            items_list.append({
+                'batchId': str(item.batch_id) if item.batch_id else '',
+                'productId': str(item.batch.product_id) if item.batch and item.batch.product_id else '',
+                'name': item.product_name,
+                'composition': item.composition,
+                'packSize': item.pack_size,
+                'packUnit': item.pack_unit,
+                'batchNo': item.batch_no,
+                'expiryDate': item.expiry_date.isoformat(),
+                'scheduleType': item.schedule_type,
+                'mrp': float(item.mrp),
+                'saleRate': float(item.sale_rate),
+                'rate': float(item.rate),
+                'qtyStrips': item.qty_strips,
+                'qtyLoose': item.qty_loose,
+                'totalQty': item.qty_strips * item.pack_size + item.qty_loose if item.pack_size else item.qty_strips,
+                'saleMode': item.sale_mode,
+                'discountPct': float(item.discount_pct),
+                'gstRate': float(item.gst_rate),
+                'taxableAmount': float(item.taxable_amount),
+                'gstAmount': float(item.gst_amount),
+                'totalAmount': float(item.total_amount),
+            })
+            
+        result = {
+            'id': str(invoice.id),
+            'outletId': str(invoice.outlet_id),
+            'invoiceNo': invoice.invoice_no,
+            'invoiceDate': invoice.invoice_date.isoformat(),
+            'customerId': str(invoice.customer.id) if invoice.customer else None,
+            'customer': {
+                'id': str(invoice.customer.id),
+                'name': invoice.customer.name,
+                'phone': invoice.customer.phone,
+                'address': invoice.customer.address,
+            } if invoice.customer else None,
+            'subtotal': float(invoice.subtotal),
+            'discountAmount': float(invoice.discount_amount),
+            'taxableAmount': float(invoice.taxable_amount),
+            'cgstAmount': float(invoice.cgst_amount),
+            'sgstAmount': float(invoice.sgst_amount),
+            'igstAmount': float(invoice.igst_amount),
+            'cgst': float(invoice.cgst),
+            'sgst': float(invoice.sgst),
+            'igst': float(invoice.igst),
+            'roundOff': float(invoice.round_off),
+            'grandTotal': float(invoice.grand_total),
+            'paymentMode': invoice.payment_mode,
+            'cashPaid': float(invoice.cash_paid),
+            'upiPaid': float(invoice.upi_paid),
+            'cardPaid': float(invoice.card_paid),
+            'creditGiven': float(invoice.credit_given),
+            'amountPaid': float(invoice.amount_paid),
+            'amountDue': float(invoice.amount_due),
+            'isReturn': invoice.is_return,
+            'billedBy': str(invoice.billed_by.id) if invoice.billed_by else None,
+            'billedByName': invoice.billed_by.name if invoice.billed_by else 'Unknown',
+            'items': items_list,
+            'createdAt': invoice.created_at.isoformat(),
+        }
+        
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class CreditTransactionListView(APIView):
+    """
+    GET /api/v1/credit/{id}/transactions/ 
+    """
+    
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, account_id, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId')
+        
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': f'Outlet {outlet_id} not found'}, status=404)
+            
+        try:
+            account = CreditAccount.objects.get(id=account_id, outlet=outlet)
+        except CreditAccount.DoesNotExist:
+            return Response({'detail': f'Credit Account {account_id} not found'}, status=404)
+            
+        transactions = CreditTransaction.objects.filter(credit_account=account).order_by('-created_at')
+        
+        result = []
+        for tx in transactions:
+            result.append({
+                'id': str(tx.id),
+                'creditAccountId': str(tx.credit_account_id),
+                'customerId': str(tx.customer_id),
+                'invoiceId': str(tx.invoice_id) if tx.invoice_id else None,
+                'type': tx.type,
+                'amount': float(tx.amount),
+                'description': tx.description,
+                'balanceAfter': float(tx.balance_after),
+                'recordedBy': str(tx.recorded_by_id) if tx.recorded_by else None,
+                'createdAt': tx.created_at.isoformat(),
+                'date': tx.date.isoformat() if tx.date else None,
+            })
+            
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class CreditLedgerView(APIView):
+    """
+    GET /api/v1/credit/{id}/ledger/
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, customer_id, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId')
+        
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': f'Outlet {outlet_id} not found'}, status=404)
+            
+        try:
+            customer = Customer.objects.get(id=customer_id, outlet=outlet)
+        except Customer.DoesNotExist:
+            return Response({'detail': f'Customer {customer_id} not found'}, status=404)
+            
+        ledger_entries = LedgerEntry.objects.filter(
+            outlet=outlet,
+            customer=customer,
+            entity_type='customer'
+        ).order_by('date', 'created_at')
+        
+        result = []
+        for entry in ledger_entries:
+            result.append({
+                'id': str(entry.id),
+                'date': entry.date.isoformat(),
+                'entryType': entry.entry_type,
+                'referenceNo': entry.reference_no,
+                'description': entry.description,
+                'debit': float(entry.debit),
+                'credit': float(entry.credit),
+                'runningBalance': float(entry.running_balance),
+                'createdAt': entry.created_at.isoformat(),
+            })
+            
+        return Response(result, status=status.HTTP_200_OK)
+
+
+# ─── Phase 2 Batch 1 Views ────────────────────────────────────────────────────
+
+class ReceiptListCreateView(APIView):
+    """
+    GET /api/v1/receipts/?customerId=&from=&to=
+    POST /api/v1/receipts/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId') or (
+            request.user.outlet_id if hasattr(request.user, 'outlet_id') else None
+        )
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        qs = ReceiptEntry.objects.filter(outlet=outlet)
+
+        customer_id = request.query_params.get('customerId')
+        if customer_id:
+            qs = qs.filter(customer_id=customer_id)
+
+        from_str = request.query_params.get('from')
+        to_str = request.query_params.get('to')
+        if from_str:
+            try:
+                qs = qs.filter(date__gte=datetime.fromisoformat(from_str).date())
+            except ValueError:
+                pass
+        if to_str:
+            try:
+                qs = qs.filter(date__lte=datetime.fromisoformat(to_str).date())
+            except ValueError:
+                pass
+
+        data = []
+        for r in qs.order_by('-date', '-created_at'):
+            data.append({
+                'id': str(r.id),
+                'customerId': str(r.customer_id),
+                'customerName': r.customer.name,
+                'date': r.date.isoformat(),
+                'totalAmount': float(r.total_amount),
+                'paymentMode': r.payment_mode,
+                'referenceNo': r.reference_no,
+                'notes': r.notes,
+                'createdAt': r.created_at.isoformat(),
+            })
+
+        return Response({'success': True, 'data': data, 'meta': {'total': len(data)}}, status=status.HTTP_200_OK)
+
+    def post(self, request, *args, **kwargs):
+        outlet_id = request.data.get('outletId') or (
+            request.user.outlet_id if hasattr(request.user, 'outlet_id') else None
+        )
+        created_by_id = request.user.id
+        try:
+            receipt = create_receipt_payment(request.data, outlet_id, created_by_id)
+        except ReceiptServiceError as e:
+            return Response({'error': {'code': 'RECEIPT_ERROR', 'message': str(e)}}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Unexpected error creating receipt: {e}", exc_info=True)
+            return Response({'error': {'code': 'INTERNAL_ERROR', 'message': str(e)}}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            'success': True,
+            'data': {
+                'id': str(receipt.id),
+                'referenceNo': receipt.reference_no,
+                'totalAmount': float(receipt.total_amount),
+                'date': receipt.date.isoformat(),
+            }
+        }, status=status.HTTP_201_CREATED)
+
+
+class DistributorOutstandingSummaryView(APIView):
+    """GET /api/v1/outstanding/distributors/"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        from apps.purchases.models import Distributor, PurchaseInvoice
+        outlet_id = request.query_params.get('outletId') or (
+            request.user.outlet_id if hasattr(request.user, 'outlet_id') else None
+        )
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        today = timezone.now().date()
+        distributors = Distributor.objects.filter(outlet=outlet, is_active=True)
+
+        data = []
+        for dist in distributors:
+            invoices = PurchaseInvoice.objects.filter(
+                outlet=outlet, distributor=dist, outstanding__gt=0
+            )
+            total_outstanding = float(invoices.aggregate(t=Sum('outstanding'))['t'] or 0)
+            if total_outstanding <= 0:
+                continue
+
+            overdue_invoices = invoices.filter(due_date__lt=today)
+            overdue_amount = float(overdue_invoices.aggregate(t=Sum('outstanding'))['t'] or 0)
+            oldest = invoices.order_by('due_date').values_list('due_date', flat=True).first()
+
+            data.append({
+                'distributorId': str(dist.id),
+                'distributorName': dist.name,
+                'totalOutstanding': total_outstanding,
+                'overdueAmount': overdue_amount,
+                'invoiceCount': invoices.count(),
+                'oldestDueDate': oldest.isoformat() if oldest else None,
+            })
+
+        data.sort(key=lambda x: x['overdueAmount'], reverse=True)
+        return Response({'success': True, 'data': data, 'meta': {'total': len(data)}}, status=status.HTTP_200_OK)
+
+
+class CustomerOutstandingSummaryView(APIView):
+    """GET /api/v1/outstanding/customers/"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId') or (
+            request.user.outlet_id if hasattr(request.user, 'outlet_id') else None
+        )
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        customers = Customer.objects.filter(outlet=outlet, is_active=True, outstanding__gt=0)
+
+        data = []
+        for cust in customers:
+            oldest_unpaid = SaleInvoice.objects.filter(
+                outlet=outlet, customer=cust, amount_due__gt=0
+            ).order_by('invoice_date').first()
+
+            last_receipt = ReceiptEntry.objects.filter(
+                outlet=outlet, customer=cust
+            ).order_by('-date').values_list('date', flat=True).first()
+
+            data.append({
+                'customerId': str(cust.id),
+                'customerName': cust.name,
+                'phone': cust.phone,
+                'totalOutstanding': float(cust.outstanding),
+                'overdueAmount': float(oldest_unpaid.amount_due) if oldest_unpaid else 0,
+                'creditLimit': float(cust.credit_limit),
+                'lastPaymentDate': last_receipt.isoformat() if last_receipt else None,
+            })
+
+        data.sort(key=lambda x: x['totalOutstanding'], reverse=True)
+        return Response({'success': True, 'data': data, 'meta': {'total': len(data)}}, status=status.HTTP_200_OK)
+
+
+class ExpenseListCreateView(APIView):
+    """
+    GET /api/v1/expenses/?from=&to=&head=
+    POST /api/v1/expenses/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId') or (
+            request.user.outlet_id if hasattr(request.user, 'outlet_id') else None
+        )
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        qs = ExpenseEntry.objects.filter(outlet=outlet)
+        from_str = request.query_params.get('from')
+        to_str = request.query_params.get('to')
+        head = request.query_params.get('head')
+        if from_str:
+            try:
+                qs = qs.filter(date__gte=datetime.fromisoformat(from_str).date())
+            except ValueError:
+                pass
+        if to_str:
+            try:
+                qs = qs.filter(date__lte=datetime.fromisoformat(to_str).date())
+            except ValueError:
+                pass
+        if head:
+            qs = qs.filter(expense_head=head)
+
+        data = []
+        breakdown = {}
+        total_amount = 0
+        for exp in qs.order_by('-date', '-created_at'):
+            data.append({
+                'id': str(exp.id),
+                'date': exp.date.isoformat(),
+                'expenseHead': exp.expense_head,
+                'customHead': exp.custom_head,
+                'amount': float(exp.amount),
+                'paymentMode': exp.payment_mode,
+                'referenceNo': exp.reference_no,
+                'notes': exp.notes,
+                'createdAt': exp.created_at.isoformat(),
+            })
+            breakdown[exp.expense_head] = breakdown.get(exp.expense_head, 0) + float(exp.amount)
+            total_amount += float(exp.amount)
+
+        return Response({
+            'success': True,
+            'data': data,
+            'meta': {'total': len(data), 'totalAmount': total_amount, 'breakdown': breakdown},
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request, *args, **kwargs):
+        outlet_id = request.data.get('outletId') or (
+            request.user.outlet_id if hasattr(request.user, 'outlet_id') else None
+        )
+        created_by_id = request.user.id
+        try:
+            expense = create_expense_entry(request.data, outlet_id, created_by_id)
+        except ExpenseServiceError as e:
+            return Response({'error': {'code': 'EXPENSE_ERROR', 'message': str(e)}}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error creating expense: {e}", exc_info=True)
+            return Response({'error': {'code': 'INTERNAL_ERROR', 'message': str(e)}}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            'success': True,
+            'data': {
+                'id': str(expense.id),
+                'date': expense.date.isoformat(),
+                'expenseHead': expense.expense_head,
+                'customHead': expense.custom_head,
+                'amount': float(expense.amount),
+                'paymentMode': expense.payment_mode,
+                'referenceNo': expense.reference_no,
+                'notes': expense.notes,
+                'createdAt': expense.created_at.isoformat(),
+            }
+        }, status=status.HTTP_201_CREATED)
+
+
+class CustomerLedgerView(APIView):
+    """GET /api/v1/customers/{id}/ledger/?from=&to="""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, customer_id, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId') or (
+            request.user.outlet_id if hasattr(request.user, 'outlet_id') else None
+        )
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            customer = Customer.objects.get(id=customer_id, outlet=outlet)
+        except Customer.DoesNotExist:
+            return Response({'detail': 'Customer not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        qs = LedgerEntry.objects.filter(outlet=outlet, customer=customer, entity_type='customer')
+        from_str = request.query_params.get('from')
+        to_str = request.query_params.get('to')
+        if from_str:
+            try:
+                qs = qs.filter(date__gte=datetime.fromisoformat(from_str).date())
+            except ValueError:
+                pass
+        if to_str:
+            try:
+                qs = qs.filter(date__lte=datetime.fromisoformat(to_str).date())
+            except ValueError:
+                pass
+
+        qs = qs.order_by('date', 'created_at')
+        entries = list(qs)
+
+        opening_balance = float(entries[0].running_balance - entries[0].credit + entries[0].debit) if entries else 0
+        closing_balance = float(entries[-1].running_balance) if entries else 0
+
+        data = [{
+            'id': str(e.id),
+            'date': e.date.isoformat(),
+            'entryType': e.entry_type,
+            'referenceNo': e.reference_no,
+            'description': e.description,
+            'debit': float(e.debit),
+            'credit': float(e.credit),
+            'balance': float(e.running_balance),
+        } for e in entries]
+
+        return Response({
+            'success': True,
+            'data': data,
+            'meta': {'openingBalance': opening_balance, 'closingBalance': closing_balance, 'total': len(data)},
+        }, status=status.HTTP_200_OK)
+
+
+class UpdateCreditLimitView(APIView):
+    """PATCH /api/v1/credit/{id}/limit/"""
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk, *args, **kwargs):
+        outlet_id = request.data.get('outletId') or request.query_params.get('outletId') or (
+            request.user.outlet_id if hasattr(request.user, 'outlet_id') else None
+        )
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            customer = Customer.objects.get(id=pk, outlet=outlet)
+        except Customer.DoesNotExist:
+            return Response({'detail': 'Customer not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        credit_limit = request.data.get('creditLimit')
+        if credit_limit is None:
+            return Response({'error': 'creditLimit is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        customer.credit_limit = Decimal(str(credit_limit))
+        customer.save(update_fields=['credit_limit'])
+
+        return Response({
+            'success': True,
+            'data': {
+                'id': str(customer.id),
+                'creditLimit': float(customer.credit_limit),
+                'outstandingBalance': float(customer.outstanding),
+            }
+        }, status=status.HTTP_200_OK)
+
+
+class CreateSalesReturnView(APIView):
+    """POST /api/v1/sales/return/"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        outlet_id = request.data.get('outletId') or (
+            request.user.outlet_id if hasattr(request.user, 'outlet_id') else None
+        )
+        created_by_id = request.user.id
+        try:
+            sales_return = create_sales_return(request.data, outlet_id, created_by_id)
+        except ReturnServiceError as e:
+            return Response({'error': {'code': 'RETURN_ERROR', 'message': str(e)}}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error creating sales return: {e}", exc_info=True)
+            return Response({'error': {'code': 'INTERNAL_ERROR', 'message': str(e)}}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            'success': True,
+            'data': {
+                'id': str(sales_return.id),
+                'returnNo': sales_return.return_no,
+                'totalAmount': float(sales_return.total_amount),
+                'returnDate': sales_return.return_date.isoformat(),
+            }
+        }, status=status.HTTP_201_CREATED)
+
+
+class SalesReturnListView(APIView):
+    """GET /api/v1/sales/returns/"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId') or (
+            request.user.outlet_id if hasattr(request.user, 'outlet_id') else None
+        )
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        qs = SalesReturn.objects.filter(outlet=outlet)
+        from_str = request.query_params.get('from')
+        to_str = request.query_params.get('to')
+        customer_id = request.query_params.get('customerId')
+        if from_str:
+            try:
+                qs = qs.filter(return_date__gte=datetime.fromisoformat(from_str).date())
+            except ValueError:
+                pass
+        if to_str:
+            try:
+                qs = qs.filter(return_date__lte=datetime.fromisoformat(to_str).date())
+            except ValueError:
+                pass
+        if customer_id:
+            qs = qs.filter(original_sale__customer_id=customer_id)
+
+        total_amount = 0
+        data = []
+        for r in qs.select_related('original_sale__customer').order_by('-return_date', '-created_at'):
+            data.append({
+                'id': str(r.id),
+                'returnNo': r.return_no,
+                'returnDate': r.return_date.isoformat(),
+                'originalInvoiceNo': r.original_sale.invoice_no,
+                'customerName': r.original_sale.customer.name if r.original_sale.customer else None,
+                'totalAmount': float(r.total_amount),
+                'refundMode': r.refund_mode,
+                'reason': r.reason,
+                'createdAt': r.created_at.isoformat(),
+            })
+            total_amount += float(r.total_amount)
+
+        return Response({
+            'success': True,
+            'data': data,
+            'meta': {'total': len(data), 'totalAmount': total_amount},
+        }, status=status.HTTP_200_OK)
+
+
+class SalesReturnDetailView(APIView):
+    """GET /api/v1/sales/returns/{id}/"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId') or (
+            request.user.outlet_id if hasattr(request.user, 'outlet_id') else None
+        )
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            r = SalesReturn.objects.select_related(
+                'original_sale__customer', 'outlet'
+            ).prefetch_related('items').get(id=pk, outlet=outlet)
+        except SalesReturn.DoesNotExist:
+            return Response({'detail': 'Return not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        items = [{
+            'productName': item.product_name,
+            'batchNo': item.batch_no,
+            'qtyReturned': item.qty_returned,
+            'returnRate': float(item.return_rate),
+            'totalAmount': float(item.total_amount),
+        } for item in r.items.all()]
+
+        data = {
+            'id': str(r.id),
+            'returnNo': r.return_no,
+            'returnDate': r.return_date.isoformat(),
+            'originalInvoiceNo': r.original_sale.invoice_no,
+            'customerName': r.original_sale.customer.name if r.original_sale.customer else None,
+            'totalAmount': float(r.total_amount),
+            'refundMode': r.refund_mode,
+            'reason': r.reason,
+            'items': items,
+            'createdAt': r.created_at.isoformat(),
+        }
+
+        return Response({'success': True, 'data': data}, status=status.HTTP_200_OK)
+
+
+class SalesReturnPrintView(APIView):
+    """GET /api/v1/sales/returns/{id}/print/"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId') or (
+            request.user.outlet_id if hasattr(request.user, 'outlet_id') else None
+        )
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            r = SalesReturn.objects.select_related(
+                'original_sale__customer', 'outlet'
+            ).prefetch_related('items').get(id=pk, outlet=outlet)
+        except SalesReturn.DoesNotExist:
+            return Response({'detail': 'Return not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        items = [{
+            'productName': item.product_name,
+            'batchNo': item.batch_no,
+            'qtyReturned': item.qty_returned,
+            'returnRate': float(item.return_rate),
+            'totalAmount': float(item.total_amount),
+        } for item in r.items.all()]
+
+        data = {
+            'returnNo': r.return_no,
+            'returnDate': r.return_date.isoformat(),
+            'originalInvoiceNo': r.original_sale.invoice_no,
+            'customerName': r.original_sale.customer.name if r.original_sale.customer else 'Walk-in',
+            'items': items,
+            'totalAmount': float(r.total_amount),
+            'refundMode': r.refund_mode,
+            'reason': r.reason,
+            'outletName': outlet.name,
+            'outletGSTIN': outlet.gstin or '',
+        }
+
+        return Response({'success': True, 'data': data}, status=status.HTTP_200_OK)
+
+
+# ── Phase 2 Batch 2: Notifications ──────────────────────────────────────────
+
+from apps.billing.models import NotificationLog
+
+
+class SendReminderView(APIView):
+    """POST /api/v1/credit/{id}/reminder/"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk, *args, **kwargs):
+        outlet_id = getattr(request.user, 'outlet_id', None)
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            credit_account = CreditAccount.objects.get(id=pk, outlet=outlet)
+        except CreditAccount.DoesNotExist:
+            return Response({'detail': 'Credit account not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        channel = request.data.get('channel', 'whatsapp')
+        message = request.data.get('message', '')
+        if not message:
+            message = (
+                f"Dear {credit_account.customer.name}, you have an outstanding balance of "
+                f"₹{credit_account.outstanding}. Please clear your dues. - MediFlow"
+            )
+
+        log = NotificationLog.objects.create(
+            outlet=outlet,
+            customer=credit_account.customer,
+            channel=channel,
+            message=message,
+            status='pending',
+        )
+
+        # Stub: in production, Celery task would fire here
+        # send_whatsapp_reminder.delay(log.id)
+        log.status = 'pending'
+        log.save(update_fields=['status'])
+
+        return Response({
+            'success': True,
+            'data': {
+                'notificationId': str(log.id),
+                'channel': log.channel,
+                'status': log.status,
+                'message': log.message,
+            }
+        }, status=status.HTTP_200_OK)
+
+
+class LowStockAlertView(APIView):
+    """POST /api/v1/notifications/low-stock/"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        from apps.inventory.models import Batch, MasterProduct
+        outlet_id = getattr(request.user, 'outlet_id', None)
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Find all active batches where qty_strips <= product.min_qty
+        low_batches = (
+            Batch.objects.filter(outlet=outlet, is_active=True)
+            .select_related('product')
+            .filter(qty_strips__lte=models.F('product__min_qty'))
+        )
+
+        alerts = []
+        for batch in low_batches:
+            alerts.append({
+                'productId': str(batch.product.id),
+                'productName': batch.product.name,
+                'batchNo': batch.batch_no,
+                'currentStock': batch.qty_strips,
+                'minQty': batch.product.min_qty,
+                'reorderQty': batch.product.reorder_qty,
+            })
+
+        return Response({
+            'success': True,
+            'data': alerts,
+            'meta': {'total': len(alerts)},
+        }, status=status.HTTP_200_OK)
+
+
+# ── Marg ERP CSV Migration ───────────────────────────────────────────────────
+
+import csv
+import io
+from django.db import transaction as db_transaction
+from apps.inventory.models import MasterProduct, Batch
+
+
+class MargMigrationView(APIView):
+    """POST /api/v1/migrate/marg/ — bulk import CSV from Marg ERP"""
+    permission_classes = [IsAuthenticated]
+
+    @db_transaction.atomic
+    def post(self, request, *args, **kwargs):
+        outlet_id = getattr(request.user, 'outlet_id', None)
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        csv_file = request.FILES.get('file')
+        if not csv_file:
+            return Response({'detail': 'CSV file is required (field: file)'}, status=status.HTTP_400_BAD_REQUEST)
+
+        decoded = csv_file.read().decode('utf-8-sig')
+        reader = csv.DictReader(io.StringIO(decoded))
+
+        imported, skipped, errors = 0, 0, []
+
+        for row_num, row in enumerate(reader, start=2):
+            try:
+                product_name = row.get('ProductName', '').strip()
+                hsn_code = row.get('HSNCode', '').strip() or f'MARG-{row_num}'
+                batch_no = row.get('BatchNo', '').strip() or f'BATCH-{row_num}'
+                expiry_str = row.get('ExpiryDate', '').strip()
+                mrp = float(row.get('MRP', 0) or 0)
+                purchase_rate = float(row.get('PurchaseRate', 0) or 0)
+                sale_rate = float(row.get('SaleRate', 0) or purchase_rate)
+                qty_strips = int(float(row.get('Qty', 0) or 0))
+                pack_size = int(float(row.get('PackSize', 1) or 1))
+
+                if not product_name:
+                    skipped += 1
+                    continue
+
+                from datetime import datetime, date
+                expiry_date = date.today()
+                if expiry_str:
+                    for fmt in ('%d/%m/%Y', '%m/%Y', '%Y-%m-%d', '%d-%m-%Y'):
+                        try:
+                            parsed = datetime.strptime(expiry_str, fmt)
+                            expiry_date = parsed.date()
+                            break
+                        except ValueError:
+                            continue
+
+                product, _ = MasterProduct.objects.get_or_create(
+                    hsn_code=hsn_code,
+                    defaults={
+                        'name': product_name,
+                        'composition': '',
+                        'manufacturer': row.get('Manufacturer', '').strip() or 'Unknown',
+                        'category': row.get('Category', '').strip() or 'General',
+                        'drug_type': 'allopathy',
+                        'schedule_type': 'OTC',
+                        'pack_size': pack_size,
+                        'pack_unit': row.get('PackUnit', 'units').strip() or 'units',
+                        'pack_type': 'strip',
+                    }
+                )
+
+                Batch.objects.create(
+                    outlet=outlet,
+                    product=product,
+                    batch_no=batch_no,
+                    expiry_date=expiry_date,
+                    mrp=mrp,
+                    purchase_rate=purchase_rate,
+                    sale_rate=sale_rate,
+                    qty_strips=qty_strips,
+                    is_opening_stock=True,
+                )
+                imported += 1
+
+            except Exception as e:
+                errors.append({'row': row_num, 'error': str(e)})
+                if len(errors) >= 10:
+                    raise Exception(f'Too many errors ({len(errors)}), aborting import')
+
+        return Response({
+            'success': True,
+            'data': {
+                'imported': imported,
+                'skipped': skipped,
+                'errors': errors,
+            }
+        }, status=status.HTTP_200_OK)

@@ -14,6 +14,8 @@ interface AuthState {
     setLoading: (v: boolean) => void;
     setError: (msg: string | null) => void;
     logout: () => void;
+    _hasHydrated: boolean;
+    setHasHydrated: (state: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -35,6 +37,8 @@ export const useAuthStore = create<AuthState>()(
                 isAuthenticated: false,
                 error: null
             }),
+            _hasHydrated: false,
+            setHasHydrated: (state) => set({ _hasHydrated: state })
         }),
         {
             name: 'mediflow-auth',
@@ -44,6 +48,9 @@ export const useAuthStore = create<AuthState>()(
                 outlet: state.outlet,
                 isAuthenticated: state.isAuthenticated
             }), // Only persist these fields
+            onRehydrateStorage: () => (state) => {
+                state?.setHasHydrated(true)
+            }
         }
     )
 );

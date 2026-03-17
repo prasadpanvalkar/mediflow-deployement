@@ -16,7 +16,7 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { useCustomerOutstanding, useCreateReceipt } from '@/hooks/useAccounts';
+import { useCustomerOutstanding, useCreateReceipt, useCustomerUnpaidInvoices } from '@/hooks/useAccounts';
 import { useToast } from '@/hooks/use-toast';
 import { PaymentMode } from '@/types';
 import { cn } from '@/lib/utils';
@@ -40,23 +40,7 @@ function refLabel(mode: PaymentMode): string {
     return 'Reference No';
 }
 
-// Mock sale invoices for a customer (hardcoded since we don't have real sale invoices with outstanding)
-const mockSaleInvoices = (customerId: string) => [
-    {
-        id: `sale-inv-${customerId}-1`,
-        invoiceNo: `INV-2026-${customerId.slice(-3)}-01`,
-        invoiceDate: format(new Date(Date.now() - 15 * 86400000), 'yyyy-MM-dd'),
-        grandTotal: 1500,
-        outstanding: 1500,
-    },
-    {
-        id: `sale-inv-${customerId}-2`,
-        invoiceNo: `INV-2026-${customerId.slice(-3)}-02`,
-        invoiceDate: format(new Date(Date.now() - 30 * 86400000), 'yyyy-MM-dd'),
-        grandTotal: 800,
-        outstanding: 500,
-    },
-];
+
 
 interface Props {
     open: boolean;
@@ -77,6 +61,8 @@ export function ReceivePaymentSheet({ open, onClose, preSelectedCustomerId, onSu
     const [notes, setNotes] = useState('');
     const [amounts, setAmounts] = useState<Record<string, string>>({});
 
+    const { data: unpaidInvoicesQuery } = useCustomerUnpaidInvoices(customerId);
+
     useEffect(() => {
         if (preSelectedCustomerId) setCustomerId(preSelectedCustomerId);
     }, [preSelectedCustomerId]);
@@ -85,7 +71,7 @@ export function ReceivePaymentSheet({ open, onClose, preSelectedCustomerId, onSu
         setAmounts({});
     }, [customerId]);
 
-    const saleInvoices = customerId ? mockSaleInvoices(customerId) : [];
+    const saleInvoices: any[] = unpaidInvoicesQuery || [];
     const totalOutstanding = saleInvoices.reduce((s, i) => s + i.outstanding, 0);
 
     function setAmount(id: string, val: string) {
@@ -102,10 +88,10 @@ export function ReceivePaymentSheet({ open, onClose, preSelectedCustomerId, onSu
 
     const allocations = saleInvoices
         .map((inv) => ({ inv, amt: parseFloat(amounts[inv.id] ?? '0') || 0 }))
-        .filter((a) => a.amt > 0);
+        .filter((a: any) => a.amt > 0);
 
-    const totalAllocated = allocations.reduce((s, a) => s + a.amt, 0);
-    const hasErrors = allocations.some((a) => a.amt > a.inv.outstanding);
+    const totalAllocated = allocations.reduce((s: number, a: any) => s + a.amt, 0);
+    const hasErrors = allocations.some((a: any) => a.amt > a.inv.outstanding);
 
     const canSubmit =
         !!customerId &&
@@ -124,14 +110,14 @@ export function ReceivePaymentSheet({ open, onClose, preSelectedCustomerId, onSu
                 paymentMode,
                 referenceNo: paymentMode !== 'cash' ? referenceNo : undefined,
                 notes: notes || undefined,
-                allocations: allocations.map((a) => ({
+                allocations: allocations.map((a: any) => ({
                     saleInvoiceId: a.inv.id,
                     allocatedAmount: a.amt,
                 })),
             });
             toast({
                 title: `Receipt of ${formatINR(totalAllocated)} recorded`,
-                description: `From ${(custOutstanding ?? []).find(c => c.customerId === customerId)?.name ?? customerId}`,
+                description: `From ${(custOutstanding ?? []).find((c: any) => c.customerId === customerId)?.name ?? customerId}`,
             });
             onClose();
             onSuccess?.();
@@ -146,7 +132,7 @@ export function ReceivePaymentSheet({ open, onClose, preSelectedCustomerId, onSu
     }
 
     return (
-        <Sheet open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+        <Sheet open={open} onOpenChange={(v: boolean) => { if (!v) onClose(); }}>
             <SheetContent side="right" className="flex flex-col h-full p-0 sm:max-w-xl w-full">
 
                 <SheetHeader className="shrink-0 border-b px-6 py-4">
@@ -185,7 +171,7 @@ export function ReceivePaymentSheet({ open, onClose, preSelectedCustomerId, onSu
                                     <SelectValue placeholder="Choose customer…" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {(custOutstanding ?? []).map((c) => (
+                                    {(custOutstanding ?? []).map((c: any) => (
                                         <SelectItem key={c.customerId} value={c.customerId}>
                                             {c.name}
                                         </SelectItem>
@@ -293,7 +279,7 @@ export function ReceivePaymentSheet({ open, onClose, preSelectedCustomerId, onSu
                                     <input
                                         type="date"
                                         value={date}
-                                        onChange={(e) => setDate(e.target.value)}
+                                        onChange={(e: any) => setDate(e.target.value)}
                                         className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                                     />
                                 </div>
@@ -329,7 +315,7 @@ export function ReceivePaymentSheet({ open, onClose, preSelectedCustomerId, onSu
                                         <Label className="text-sm">{refLabel(paymentMode)} <span className="text-red-500">*</span></Label>
                                         <Input
                                             value={referenceNo}
-                                            onChange={(e) => setReferenceNo(e.target.value)}
+                                            onChange={(e: any) => setReferenceNo(e.target.value)}
                                             placeholder={`Enter ${refLabel(paymentMode).toLowerCase()}…`}
                                             className="font-mono text-sm"
                                         />
@@ -340,7 +326,7 @@ export function ReceivePaymentSheet({ open, onClose, preSelectedCustomerId, onSu
                                     <Label className="text-sm">Notes <span className="text-muted-foreground font-normal">(optional)</span></Label>
                                     <textarea
                                         value={notes}
-                                        onChange={(e) => setNotes(e.target.value)}
+                                        onChange={(e: any) => setNotes(e.target.value)}
                                         rows={2}
                                         placeholder="Any remarks…"
                                         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"

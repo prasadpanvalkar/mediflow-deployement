@@ -19,7 +19,7 @@ export function useTodayAttendance() {
 export function useMonthlyAttendance(filter: MonthlyAttendanceFilter) {
     return useQuery({
         queryKey: ['attendance', 'monthly', filter],
-        queryFn: () => attendanceApi.getMonthlyRecords(filter),
+        queryFn: () => attendanceApi.getMonthlyRecords(filter.outletId, filter.staffId ?? '', `${filter.year}-${String(filter.month).padStart(2, '0')}`),
         staleTime: 1000 * 60 * 5,
         enabled: !!filter.outletId,
     });
@@ -29,7 +29,7 @@ export function useMonthlySummaries(month: number, year: number) {
     const outletId = useOutletId();
     return useQuery({
         queryKey: ['attendance', 'summary', outletId, month, year],
-        queryFn: () => attendanceApi.getMonthlySummaries(outletId, month, year),
+        queryFn: () => attendanceApi.getMonthlySummaries(outletId, '', `${year}-${String(month).padStart(2, '0')}`),
         staleTime: 1000 * 60 * 5,
         enabled: !!outletId,
     });

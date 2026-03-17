@@ -46,7 +46,7 @@ export function BatchDetailDrawer({ productId, isOpen, onClose, onAdjust }: any)
                                <Skeleton key={i} className="h-32 w-full rounded-xl" />
                           ))
                      ) : data.length > 0 ? (
-                          data.map(batch => {
+                          data.map((batch: any) => {
                                const exDate = new Date(batch.expiryDate);
                                const now = new Date();
                                const diffDays = Math.ceil((exDate.getTime() - now.getTime()) / (1000 * 3600 * 24));

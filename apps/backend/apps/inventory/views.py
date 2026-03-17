@@ -5,11 +5,134 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 from django.db.models import Q, Sum
 from django.utils import timezone
+from django.db import transaction
+from datetime import timedelta
+from decimal import Decimal
 
 from apps.inventory.models import MasterProduct, Batch
 from apps.core.models import Outlet
+from apps.accounts.models import Staff
 
 logger = logging.getLogger(__name__)
+
+
+def serialize_product(product, total_stock=0, nearest_expiry="2099-12-31", is_low_stock=False, batches=None):
+    return {
+        'id': str(product.id),
+        'name': product.name,
+        'composition': product.composition,
+        'manufacturer': product.manufacturer,
+        'category': product.category,
+        'drugType': product.drug_type,
+        'scheduleType': product.schedule_type,
+        'hsnCode': product.hsn_code,
+        'gstRate': float(product.gst_rate),
+        'packSize': product.pack_size,
+        'packUnit': product.pack_unit,
+        'packType': product.pack_type,
+        'barcode': product.barcode,
+        'isFridge': product.is_fridge,
+        'isDiscontinued': product.is_discontinued,
+        'imageUrl': product.image_url,
+        'outletProductId': str(product.id),
+        'totalStock': total_stock,
+        'nearestExpiry': nearest_expiry,
+        'isLowStock': is_low_stock,
+        'batches': batches or [],
+    }
+
+def serialize_batch(batch):
+    return {
+        'id': str(batch.id),
+        'outletId': str(batch.outlet.id),
+        'outletProductId': str(batch.product.id),
+        'batchNo': batch.batch_no,
+        'mfgDate': batch.mfg_date.isoformat() if batch.mfg_date else None,
+        'expiryDate': batch.expiry_date.isoformat() if batch.expiry_date else None,
+        'mrp': float(batch.mrp),
+        'purchaseRate': float(batch.purchase_rate),
+        'saleRate': float(batch.sale_rate),
+        'qtyStrips': batch.qty_strips,
+        'qtyLoose': batch.qty_loose,
+        'rackLocation': batch.rack_location,
+        'isActive': batch.is_active,
+        'createdAt': batch.created_at.isoformat(),
+    }
+
+
+class ProductListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        products = MasterProduct.objects.all()
+        return Response([serialize_product(p) for p in products], status=status.HTTP_200_OK)
+
+
+class ProductDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk, *args, **kwargs):
+        try:
+            product = MasterProduct.objects.get(id=pk)
+            return Response(serialize_product(product), status=status.HTTP_200_OK)
+        except MasterProduct.DoesNotExist:
+            return Response({'detail': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class ProductBatchesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId')
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+        try:
+            product = MasterProduct.objects.get(id=pk)
+        except MasterProduct.DoesNotExist:
+            return Response({'detail': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        batches = Batch.objects.filter(product=product, outlet=outlet, is_active=True).order_by('expiry_date')
+        return Response([serialize_batch(b) for b in batches], status=status.HTTP_200_OK)
+
+
+class InventoryExportCSVView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        import csv
+        from django.http import StreamingHttpResponse
+        
+        class Echo:
+            def write(self, value): return value
+            
+        outlet_id = request.query_params.get('outletId')
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        batches = Batch.objects.filter(outlet=outlet, qty_strips__gt=0).select_related('product')
+        
+        def iter_items():
+            yield ['product_name', 'batch_no', 'expiry_date', 'qty_strips', 'mrp', 'purchase_rate', 'rack_location']
+            for b in batches:
+                yield [
+                    b.product.name,
+                    b.batch_no,
+                    b.expiry_date.isoformat() if b.expiry_date else '',
+                    str(b.qty_strips),
+                    str(b.mrp),
+                    str(b.purchase_rate),
+                    b.rack_location or ''
+                ]
+
+        writer = csv.writer(Echo())
+        response = StreamingHttpResponse((writer.write(r) for r in iter_items()), content_type="text/csv")
+        response['Content-Disposition'] = 'attachment; filename="stock_export.csv"'
+        return response
 
 
 class ProductSearchView(APIView):
@@ -380,3 +503,213 @@ class InventoryListView(APIView):
                 'totalRecords': total_records
             }
         }, status=status.HTTP_200_OK)
+
+
+class InventoryAlertsView(APIView):
+    """
+    GET /api/v1/inventory/alerts/?outletId=xxx
+
+    Get inventory alerts: low stock, expiring soon, and out of stock products.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        """
+        Get inventory alerts.
+
+        Query parameters:
+        - outletId: Outlet UUID to filter batches (required)
+
+        Returns:
+        {
+            "lowStock": [{ "productId", "productName", "totalStock", "reorderQty", "nearestExpiry" }],
+            "expiringIn30Days": [{ "productId", "productName", "batchNo", "expiryDate", "daysRemaining", "qty" }],
+            "outOfStock": [{ "productId", "productName" }]
+        }
+        """
+
+        outlet_id = request.query_params.get('outletId')
+
+        # Validate outlet
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response(
+                {'detail': f'Outlet {outlet_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        logger.info(f"Fetching inventory alerts for outlet: {outlet.name}")
+
+        today = timezone.now().date()
+        low_stock = []
+        expiring_in_30_days = []
+        out_of_stock = []
+
+        # Get all products
+        products = MasterProduct.objects.all()
+
+        for product in products:
+            # Get batches for this product at this outlet
+            batches = Batch.objects.filter(
+                product=product,
+                outlet=outlet,
+                is_active=True
+            ).order_by('expiry_date')
+
+            # Aggregate total stock
+            total_stock = batches.aggregate(total=Sum('qty_strips'))['total'] or 0
+
+            # Get nearest expiry date
+            nearest_expiry = (
+                batches.first().expiry_date.isoformat()
+                if batches.exists()
+                else None
+            )
+
+            # Check for out of stock
+            if total_stock == 0:
+                out_of_stock.append({
+                    'productId': str(product.id),
+                    'productName': product.name,
+                })
+            # Check for low stock (0 < total_stock < 10)
+            elif total_stock < 10:
+                low_stock.append({
+                    'productId': str(product.id),
+                    'productName': product.name,
+                    'totalStock': total_stock,
+                    'reorderQty': 50,  # Default reorder qty
+                    'nearestExpiry': nearest_expiry,
+                })
+
+            # Check for batches expiring in 30 days
+            cutoff_date = today + timedelta(days=30)
+            expiring_batches = batches.filter(
+                expiry_date__lte=cutoff_date,
+                expiry_date__gte=today,
+                qty_strips__gt=0
+            )
+
+            for batch in expiring_batches:
+                days_remaining = (batch.expiry_date - today).days
+                expiring_in_30_days.append({
+                    'productId': str(product.id),
+                    'productName': product.name,
+                    'batchNo': batch.batch_no,
+                    'expiryDate': batch.expiry_date.isoformat(),
+                    'daysRemaining': days_remaining,
+                    'qty': batch.qty_strips,
+                })
+
+        result = {
+            'lowStock': low_stock,
+            'expiringIn30Days': expiring_in_30_days,
+            'outOfStock': out_of_stock,
+        }
+
+        logger.info(f"Returning alerts: {len(low_stock)} low stock, {len(expiring_in_30_days)} expiring, {len(out_of_stock)} out of stock")
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class InventoryAdjustView(APIView):
+    """
+    POST /api/v1/inventory/adjust/
+
+    Adjust batch stock for damage, return, or correction.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        """
+        Adjust batch stock.
+
+        Request body:
+        {
+            "batchId": "...",
+            "type": "damage" | "return" | "correction",
+            "qty": 5,  # Can be negative
+            "reason": "Batch damaged in transport",
+            "pin": "1234"
+        }
+
+        Response:
+        {
+            "success": true,
+            "message": "Stock adjusted successfully"
+        }
+        """
+
+        outlet_id = request.query_params.get('outletId')
+        batch_id = request.data.get('batchId')
+        adjust_type = request.data.get('type')
+        qty = request.data.get('qty')
+        reason = request.data.get('reason')
+        pin = request.data.get('pin')
+
+        # Validate required fields
+        if not all([batch_id, adjust_type, qty is not None, pin]):
+            return Response(
+                {'detail': 'batchId, type, qty, and pin are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate outlet
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response(
+                {'detail': f'Outlet {outlet_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Validate PIN - staff exists in this outlet
+        staff = None
+        if pin:
+            try:
+                staff = Staff.objects.get(outlet=outlet, staff_pin=pin)
+            except Staff.DoesNotExist:
+                return Response(
+                    {'error': {'code': 'INVALID_PIN', 'message': 'Invalid PIN'}},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # Fetch batch
+        try:
+            batch = Batch.objects.get(id=batch_id, outlet=outlet)
+        except Batch.DoesNotExist:
+            return Response(
+                {'detail': f'Batch {batch_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Update stock in transaction
+        try:
+            with transaction.atomic():
+                batch.qty_strips += qty
+
+                # Validate stock never goes below 0
+                if batch.qty_strips < 0:
+                    return Response(
+                        {'detail': f'Stock cannot go below 0. Current: {batch.qty_strips - qty}, Adjustment: {qty}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                batch.save()
+                logger.info(f"Adjusted batch {batch_id} stock by {qty} ({adjust_type}): {reason}")
+
+        except Exception as e:
+            logger.error(f"Error adjusting batch stock: {str(e)}")
+            return Response(
+                {'detail': f'Error adjusting stock: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        result = {
+            'success': True,
+            'message': f'Stock adjusted successfully. New stock: {batch.qty_strips}',
+        }
+
+        return Response(result, status=status.HTTP_200_OK)

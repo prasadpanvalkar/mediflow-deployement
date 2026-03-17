@@ -72,7 +72,8 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
             raise PurchaseServiceError(f"Staff {created_by_id} not found for outlet {outlet_id}")
 
         # ─── Step 4: Create PurchaseInvoice ────────────────────────────────────────────
-        invoice_date = timezone.datetime.fromisoformat(payload['invoiceDate'])
+        invoice_date_str = payload['invoiceDate'].replace('Z', '+00:00')
+        invoice_date = timezone.datetime.fromisoformat(invoice_date_str)
         if not isinstance(invoice_date, timezone.datetime):
             invoice_date = timezone.make_aware(invoice_date)
 
@@ -132,7 +133,27 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
 
             # Batch lookup key: (batch_no, expiry_date)
             batch_no = item_payload['batchNo']
-            expiry_date = timezone.datetime.fromisoformat(item_payload['expiryDate']).date()
+            raw_expiry = item_payload['expiryDate']
+            try:
+                expiry_date = timezone.datetime.fromisoformat(raw_expiry.replace('Z', '+00:00')).date()
+            except (ValueError, TypeError):
+                import re as _re
+                m = _re.match(r'^(\d{1,2})[\/\-](\d{2,4})$', raw_expiry)
+                if m:
+                    month = int(m.group(1))
+                    year_raw = m.group(2)
+                    year = int(year_raw) + 2000 if len(year_raw) == 2 else int(year_raw)
+                    if not (1 <= month <= 12):
+                        raise PurchaseServiceError(
+                            f"Item {idx + 1}: invalid expiry month {month} in '{raw_expiry}'"
+                        )
+                    from datetime import date as _date
+                    expiry_date = _date(year, month, 1)
+                else:
+                    raise PurchaseServiceError(
+                        f"Item {idx + 1}: unrecognised expiry date format '{raw_expiry}'. "
+                        f"Use YYYY-MM-DD or MM/YY."
+                    )
             batch_key = (batch_no, expiry_date)
 
             # Check if batch already exists in this transaction (batch_cache)

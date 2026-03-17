@@ -29,7 +29,7 @@ export function InventoryStatCards({ onTabChange }: { onTabChange?: (tab: string
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() + 90);
 
-    items.forEach(p => {
+    items.forEach((p: any) => {
         p.batches?.forEach((b: any) => {
              activeBatches++;
              stockValue += (b.qtyStrips * b.purchaseRate);

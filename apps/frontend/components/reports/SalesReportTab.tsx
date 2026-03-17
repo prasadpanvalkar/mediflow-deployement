@@ -107,7 +107,7 @@ export function SalesReportTab({ dateRange }: SalesReportTabProps) {
     return (
         <div className="space-y-6">
             {/* Summary Cards */}
-            <ReportSummaryCards cards={data?.summary ?? []} isLoading={isLoading} />
+            <ReportSummaryCards cards={(data?.summary ?? []).map((c: any) => ({ ...c, trend: c.trend as "up" | "down" | "flat" }))} isLoading={isLoading} />
 
             {/* Sales Trend Chart */}
             <div className="bg-white rounded-xl border p-4">

@@ -42,16 +42,13 @@ export default function LoginForm() {
                 useAuthStore.getState().setOutlet(response.user.outlet)
             }
 
-            // Store flag for mock auth in middleware if using dev mode
-            if (process.env.NEXT_PUBLIC_USE_MOCK === 'true') {
-                sessionStorage.setItem('mediflow_mock_auth', 'true')
-                document.cookie = "mediflow_mock_auth=true; path=/";
-            }
+            // Set JWT access token as a cookie so middleware can detect authentication
+            document.cookie = `access_token=${response.access}; path=/; max-age=86400; SameSite=Lax`
 
             const redirectTo = searchParams.get('redirect') ?? '/dashboard'
             router.push(redirectTo)
         } catch (err: any) {
-            setServerError(err?.error?.message ?? "Login failed. Please try again.")
+            setServerError(err?.detail ?? err?.error?.message ?? "Login failed. Please try again.")
             setIsShaking(true)
             setTimeout(() => setIsShaking(false), 600)
         } finally {
@@ -142,12 +139,6 @@ export default function LoginForm() {
                         Forgot your PIN?
                     </a>
 
-                    {process.env.NEXT_PUBLIC_USE_MOCK === 'true' && (
-                        <div className="bg-slate-100 rounded p-2 mt-4 text-xs text-muted-foreground text-center animate-in slide-in-from-bottom flex flex-col items-center">
-                            <p className="font-semibold mb-1">Dev Mode Credentials</p>
-                            <p>Phone: <span className="font-mono">9876543210</span> | Password: <span className="font-mono">password123</span></p>
-                        </div>
-                    )}
                 </form>
             </CardContent>
         </Card>

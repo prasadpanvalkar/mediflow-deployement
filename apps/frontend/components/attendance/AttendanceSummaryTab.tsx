@@ -3,7 +3,8 @@
 import { ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMonthlySummaries } from '@/hooks/useAttendance';
-import { mockStaff } from '@/mock/staff.mock';
+import { useStaffList } from '@/hooks/useStaff';
+import { useOutletSettings } from '@/hooks/useOutletSettings';
 import { AttendanceSummary } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -39,11 +40,11 @@ function AttendancePctBadge({ pct }: { pct: number }) {
     );
 }
 
-function StaffSummaryCard({ summary }: { summary: AttendanceSummary }) {
-    const staff = mockStaff.find(s => s.id === summary.staffId);
+function StaffSummaryCard({ summary, shiftStart }: { summary: AttendanceSummary; shiftStart: string }) {
+    const { data: staffList = [] } = useStaffList();
+    const staff = (staffList as any[]).find((s: any) => s.id === summary.staffId);
     const { totalWorkingDays, presentDays, lateDays, absentDays } = summary;
 
-    const shiftStart = STAFF_SHIFT_START_LABELS[summary.staffId] ?? '09:00';
     const avgIsLate = (() => {
         const [sh, sm] = shiftStart.split(':').map(Number);
         const [ah, am] = summary.avgCheckInTime.split(':').map(Number);
@@ -120,17 +121,10 @@ function Stat({ label, value, color }: { label: string; value: string | number; 
     );
 }
 
-// Shift start for avg comparison (mirrors attendance mock)
-const STAFF_SHIFT_START_LABELS: Record<string, string> = {
-    'staff-001': '09:00',
-    'staff-002': '09:00',
-    'staff-003': '10:00',
-    'staff-004': '09:00',
-    'staff-005': '13:00',
-};
-
 export function AttendanceSummaryTab({ selectedMonth, selectedYear, onMonthChange, onYearChange }: Props) {
     const { data: summaries = [], isLoading } = useMonthlySummaries(selectedMonth, selectedYear);
+    const { data: outletSettings } = useOutletSettings();
+    const shiftStart = outletSettings?.openingTime ?? '09:00';
 
     function prevMonth() {
         if (selectedMonth === 1) { onMonthChange(12); onYearChange(selectedYear - 1); }
@@ -147,7 +141,7 @@ export function AttendanceSummaryTab({ selectedMonth, selectedYear, onMonthChang
         (selectedYear === CURRENT_YEAR && selectedMonth >= CURRENT_MONTH);
 
     const totals = summaries.reduce(
-        (acc, s) => ({
+        (acc: any, s: any) => ({
             presentDays: acc.presentDays + s.presentDays,
             absentDays: acc.absentDays + s.absentDays,
             totalHours: acc.totalHours + s.totalHoursWorked,
@@ -155,7 +149,7 @@ export function AttendanceSummaryTab({ selectedMonth, selectedYear, onMonthChang
         { presentDays: 0, absentDays: 0, totalHours: 0 }
     );
     const avgPct = summaries.length > 0
-        ? Math.round(summaries.reduce((a, s) => a + s.attendancePct, 0) / summaries.length)
+        ? Math.round(summaries.reduce((a: number, s: any) => a + s.attendancePct, 0) / summaries.length)
         : 0;
 
     return (
@@ -184,8 +178,8 @@ export function AttendanceSummaryTab({ selectedMonth, selectedYear, onMonthChang
             ) : (
                 <>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {summaries.map(s => (
-                            <StaffSummaryCard key={s.staffId} summary={s} />
+                        {summaries.map((s: any) => (
+                            <StaffSummaryCard key={s.staffId} summary={s} shiftStart={shiftStart} />
                         ))}
                     </div>
 

@@ -19,12 +19,12 @@ export default function CustomerStatCards({ onFilterChronic, onFilterOutstanding
     const { data: outstandingData } = useCustomerList({ hasOutstanding: true });
     const { data: refillAlerts } = useRefillAlerts();
 
-    const total = allData?.pagination.totalRecords ?? 0;
-    const chronicCount = chronicData?.pagination.totalRecords ?? 0;
-    const outstandingCount = outstandingData?.pagination.totalRecords ?? 0;
-    const outstandingAmount = outstandingData?.data.reduce((s, c) => s + c.outstanding, 0) ?? 0;
+    const total = allData?.length ?? 0;
+    const chronicCount = chronicData?.length ?? 0;
+    const outstandingCount = outstandingData?.length ?? 0;
+    const outstandingAmount = outstandingData?.reduce((s: number, c: any) => s + (c.outstanding || 0), 0) ?? 0;
     const refillCount = refillAlerts?.length ?? 0;
-    const hasOverdue = refillAlerts?.some(a => a.daysOverdue > 0) ?? false;
+    const hasOverdue = refillAlerts?.some((a: any) => a.daysOverdue > 0) ?? false;
 
     const cards = [
         {

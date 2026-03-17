@@ -3,7 +3,7 @@
 import { UserCheck, LogOut, Clock, UserX } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { useTodayAttendance } from '@/hooks/useAttendance';
-import { mockStaff } from '@/mock/staff.mock';
+import { useStaffList } from '@/hooks/useStaff';
 import { cn } from '@/lib/utils';
 
 interface StatCardProps {
@@ -38,15 +38,16 @@ function StatCard({ label, value, subtitle, icon: Icon, iconBg, valueColor }: St
 
 export function AttendanceTodaySummary() {
     const { data: todayRecords } = useTodayAttendance();
-    const totalStaff = mockStaff.length;
+    const { data: staffList = [] } = useStaffList();
+    const totalStaff = staffList.length;
 
     const presentCount = todayRecords?.filter(
-        r => r.checkInTime && (r.status === 'present' || r.status === 'late')
+        (r: any) => r.checkInTime && (r.status === 'present' || r.status === 'late')
     ).length ?? 0;
 
-    const checkedOutCount = todayRecords?.filter(r => !!r.checkOutTime).length ?? 0;
+    const checkedOutCount = todayRecords?.filter((r: any) => !!r.checkOutTime).length ?? 0;
 
-    const lateCount = todayRecords?.filter(r => r.isLate).length ?? 0;
+    const lateCount = todayRecords?.filter((r: any) => r.isLate).length ?? 0;
 
     const notMarkedCount = totalStaff - presentCount;
 

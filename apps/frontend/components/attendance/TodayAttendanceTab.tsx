@@ -6,8 +6,7 @@ import { cn } from '@/lib/utils';
 import { useTodayAttendance, useMarkManualAttendance } from '@/hooks/useAttendance';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/use-toast';
-import { mockStaff } from '@/mock/staff.mock';
-import { STAFF_SHIFT_START, STAFF_SHIFT_END } from '@/mock/attendance.mock';
+import { useStaffList } from '@/hooks/useStaff';
 import { AttendanceRecord, StaffMember } from '@/types';
 import { PermissionGate } from '@/components/shared/PermissionGate';
 import { RoleBadge } from '@/components/shared/RoleBadge';
@@ -76,9 +75,12 @@ function LiveHours({ record }: { record?: AttendanceRecord }) {
 
 export function TodayAttendanceTab({ onMarkManual }: Props) {
     const { data: todayRecords, isLoading } = useTodayAttendance();
+    const { data: staffList = [] } = useStaffList();
     const { user } = useAuthStore();
     const { toast } = useToast();
     const markManual = useMarkManualAttendance();
+    const DEFAULT_SHIFT_START = '09:00';
+    const DEFAULT_SHIFT_END = '18:00';
 
     async function handleMarkAbsent(staff: StaffMember) {
         if (!confirm(`Mark ${staff.name} as absent today?`)) return;
@@ -123,11 +125,11 @@ export function TodayAttendanceTab({ onMarkManual }: Props) {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {mockStaff.map(staff => {
-                            const record = todayRecords?.find(r => r.staffId === staff.id);
+                        {(staffList as any[]).map(staff => {
+                            const record = todayRecords?.find((r: any) => r.staffId === staff.id);
                             const isCheckedIn = !!record?.checkInTime && !record.checkOutTime;
-                            const shiftStart = STAFF_SHIFT_START[staff.id] ?? '09:00';
-                            const shiftEnd = STAFF_SHIFT_END[staff.id] ?? '18:00';
+                            const shiftStart = DEFAULT_SHIFT_START;
+                            const shiftEnd = DEFAULT_SHIFT_END;
 
                             return (
                                 <TableRow key={staff.id}>
@@ -137,7 +139,7 @@ export function TodayAttendanceTab({ onMarkManual }: Props) {
                                             <div className="relative">
                                                 <Avatar className="w-9 h-9">
                                                     <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                                                        {staff.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                                        {staff.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
                                                     </AvatarFallback>
                                                 </Avatar>
                                                 {isCheckedIn && (

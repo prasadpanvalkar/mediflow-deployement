@@ -150,9 +150,9 @@ export function ExpensesTab() {
     const weekEnd    = format(endOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd');
     const todayStr   = format(today, 'yyyy-MM-dd');
 
-    const monthTotal = allExpenses.filter(e => e.date >= monthStart).reduce((s, e) => s + e.amount, 0);
-    const weekTotal  = allExpenses.filter(e => e.date >= weekStart && e.date <= weekEnd).reduce((s, e) => s + e.amount, 0);
-    const todayTotal = allExpenses.filter(e => e.date === todayStr).reduce((s, e) => s + e.amount, 0);
+    const monthTotal = allExpenses.filter((e: any) => e.date >= monthStart).reduce((s: number, e: any) => s + e.amount, 0);
+    const weekTotal  = allExpenses.filter((e: any) => e.date >= weekStart && e.date <= weekEnd).reduce((s: number, e: any) => s + e.amount, 0);
+    const todayTotal = allExpenses.filter((e: any) => e.date === todayStr).reduce((s: number, e: any) => s + e.amount, 0);
 
     const grouped = groupByDate(allExpenses);
 

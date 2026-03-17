@@ -14,7 +14,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import {
     LayoutDashboard, Receipt, Package, ShoppingCart, Users,
     CreditCard, UserCog, CalendarCheck, BarChart3, Settings,
-    Pill, ChevronLeft, ChevronRight, MoreVertical, Wallet,
+    Pill, ChevronLeft, ChevronRight, MoreVertical, Wallet, Building2,
 } from 'lucide-react';
 
 type NavItem = {
@@ -108,19 +108,9 @@ export function Sidebar({ isCollapsed, onToggle, isMobile = false }: SidebarProp
     const { hasPermission } = usePermissions();
     const { user, logout } = useAuthStore();
 
-    const handleLogout = async () => {
-        try {
-            await authApi.logout();
-        } catch (e) {
-            // Ignore
-        } finally {
-            logout();
-            if (typeof window !== 'undefined') {
-                sessionStorage.removeItem('mediflow_mock_auth');
-                document.cookie = 'mediflow_mock_auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-                window.location.href = '/login';
-            }
-        }
+    const handleLogoutAction = async () => {
+        const { handleLogout } = await import('@/lib/auth');
+        await handleLogout();
     };
 
     const getInitials = (name?: string) => {
@@ -155,6 +145,37 @@ export function Sidebar({ isCollapsed, onToggle, isMobile = false }: SidebarProp
             {/* Nav items */}
             <div className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
                 <TooltipProvider delayDuration={isCollapsed ? 100 : 1000}>
+                    {/* Super Admin: Chain Dashboard */}
+                    {user?.role === 'super_admin' && (() => {
+                        const href = '/dashboard/chain';
+                        const isActive = pathname === href || pathname.startsWith(href);
+                        const content = (
+                            <Link
+                                href={href}
+                                onClick={isMobile ? onToggle : undefined}
+                                className={cn(
+                                    'flex items-center gap-3 rounded-lg text-sm font-medium transition-colors',
+                                    isCollapsed ? 'justify-center py-3' : 'px-3 py-2.5',
+                                    isActive
+                                        ? 'bg-primary text-white'
+                                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                                )}
+                            >
+                                <Building2 className="w-5 h-5 shrink-0" />
+                                {!isCollapsed && <span className="flex-1 truncate">Chain Dashboard</span>}
+                            </Link>
+                        );
+                        if (isCollapsed && !isMobile) {
+                            return (
+                                <Tooltip key="chain">
+                                    <TooltipTrigger asChild>{content}</TooltipTrigger>
+                                    <TooltipContent side="right"><p>Chain Dashboard</p></TooltipContent>
+                                </Tooltip>
+                            );
+                        }
+                        return <div key="chain">{content}</div>;
+                    })()}
+
                     {NAV_ITEMS.map((item) => {
                         if (item.permission && !hasPermission(item.permission)) return null;
 
@@ -245,7 +266,7 @@ export function Sidebar({ isCollapsed, onToggle, isMobile = false }: SidebarProp
                             <DropdownMenuContent align="end" className="w-48">
                                 <DropdownMenuItem>Profile</DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer">
+                                <DropdownMenuItem onClick={handleLogoutAction} className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer">
                                     Logout
                                 </DropdownMenuItem>
                             </DropdownMenuContent>

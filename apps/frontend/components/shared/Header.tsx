@@ -12,12 +12,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { authApi } from '@/lib/apiClient';
 import { useEffect, useState } from 'react';
 
-// Dummy outlets for Stage 4 mockup
-const OUTLETS = [
-    { id: '1', name: 'Ahilyanagar Branch' },
-    { id: '2', name: 'Pune Regional' },
-];
-
 interface HeaderProps {
     onMobileMenuToggle: () => void;
     isSidebarCollapsed: boolean;
@@ -43,18 +37,9 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
         };
     }, []);
 
-    const handleLogout = async () => {
-        try {
-            await authApi.logout();
-        } catch {
-        } finally {
-            logout();
-            if (typeof window !== 'undefined') {
-                sessionStorage.removeItem('mediflow_mock_auth');
-                document.cookie = 'mediflow_mock_auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-                window.location.href = '/login';
-            }
-        }
+    const handleLogoutAction = async () => {
+        const { handleLogout } = await import('@/lib/auth');
+        await handleLogout();
     };
 
     const getInitials = (name?: string) => name ? name.substring(0, 2).toUpperCase() : 'U';
@@ -92,16 +77,16 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
 
                 <PermissionGate permission="view_all_outlets">
                     <div className="hidden sm:block">
-                        <Select value={selectedOutletId || '1'} onValueChange={setOutletId}>
+                        <Select value={selectedOutletId || user?.outlet?.id || ''} onValueChange={setOutletId}>
                             <SelectTrigger className="w-full max-w-[180px] h-9 text-sm bg-slate-50 border-slate-200 focus:ring-primary focus:ring-offset-1">
                                 <SelectValue placeholder="Select Outlet" />
                             </SelectTrigger>
                             <SelectContent>
-                                {OUTLETS.map(outlet => (
-                                    <SelectItem key={outlet.id} value={outlet.id}>
-                                        {outlet.name}
+                                {user?.outlet && (
+                                    <SelectItem value={user.outlet.id}>
+                                        {user.outlet.name}
                                     </SelectItem>
-                                ))}
+                                )}
                             </SelectContent>
                         </Select>
                     </div>
@@ -132,7 +117,7 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
                             <DropdownMenuSeparator />
                             <DropdownMenuItem>Profile</DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:bg-red-50 focus:text-red-700 cursor-pointer">
+                            <DropdownMenuItem onClick={handleLogoutAction} className="text-red-600 focus:bg-red-50 focus:text-red-700 cursor-pointer">
                                 Logout
                             </DropdownMenuItem>
                         </DropdownMenuContent>

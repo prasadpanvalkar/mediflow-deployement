@@ -95,6 +95,54 @@ class DistributorListView(APIView):
 
         return Response(results, status=status.HTTP_200_OK)
 
+    def post(self, request, *args, **kwargs):
+        """Create a new distributor."""
+        outlet_id = request.data.get('outletId')
+        
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response(
+                {'detail': f'Outlet {outlet_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        distributor = Distributor.objects.create(
+            outlet=outlet,
+            name=request.data.get('name'),
+            gstin=request.data.get('gstin'),
+            drug_license_no=request.data.get('drugLicenseNo'),
+            phone=request.data.get('phone', ''),
+            email=request.data.get('email'),
+            address=request.data.get('address', ''),
+            city=request.data.get('city', ''),
+            state=request.data.get('state', ''),
+            credit_days=request.data.get('creditDays', 0),
+            opening_balance=Decimal(str(request.data.get('openingBalance', 0))),
+            balance_type=request.data.get('balanceType', 'CR'),
+            is_active=True,
+        )
+        
+        logger.info(f"Created distributor {distributor.id} ({distributor.name})")
+        
+        result = {
+            'id': str(distributor.id),
+            'name': distributor.name,
+            'gstin': distributor.gstin,
+            'drugLicenseNo': distributor.drug_license_no,
+            'phone': distributor.phone,
+            'email': distributor.email,
+            'address': distributor.address,
+            'city': distributor.city,
+            'state': distributor.state,
+            'creditDays': distributor.credit_days,
+            'openingBalance': float(distributor.opening_balance) if distributor.opening_balance else 0,
+            'balanceType': distributor.balance_type,
+            'isActive': distributor.is_active,
+            'createdAt': distributor.created_at.isoformat(),
+        }
+        
+        return Response(result, status=status.HTTP_201_CREATED)
 
 class DistributorDetailView(APIView):
     """
@@ -124,6 +172,69 @@ class DistributorDetailView(APIView):
                 {'detail': f'Distributor {distributor_id} not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+        result = {
+            'id': str(distributor.id),
+            'name': distributor.name,
+            'gstin': distributor.gstin,
+            'drugLicenseNo': distributor.drug_license_no,
+            'phone': distributor.phone,
+            'email': distributor.email,
+            'address': distributor.address,
+            'city': distributor.city,
+            'state': distributor.state,
+            'creditDays': distributor.credit_days,
+            'openingBalance': float(distributor.opening_balance) if distributor.opening_balance else 0,
+            'balanceType': distributor.balance_type,
+            'isActive': distributor.is_active,
+            'createdAt': distributor.created_at.isoformat(),
+        }
+
+        return Response(result, status=status.HTTP_200_OK)
+
+    def put(self, request, distributor_id, *args, **kwargs):
+        """Update distributor details."""
+        outlet_id = request.data.get('outletId')
+
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response(
+                {'detail': f'Outlet {outlet_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        try:
+            distributor = Distributor.objects.get(id=distributor_id, outlet=outlet)
+        except Distributor.DoesNotExist:
+            return Response(
+                {'detail': f'Distributor {distributor_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Update allowed fields
+        allowed_fields = [
+            'name', 'gstin', 'drug_license_no', 'phone', 'email',
+            'address', 'city', 'state', 'credit_days', 'opening_balance', 'balance_type', 'is_active'
+        ]
+        
+        for field in allowed_fields:
+            camel_field = {
+                'drug_license_no': 'drugLicenseNo',
+                'credit_days': 'creditDays',
+                'opening_balance': 'openingBalance',
+                'balance_type': 'balanceType',
+                'is_active': 'isActive'
+            }.get(field, field)
+
+            if camel_field in request.data:
+                val = request.data[camel_field]
+                if field == 'opening_balance':
+                    val = Decimal(str(val))
+                setattr(distributor, field, val)
+
+        distributor.save()
+        logger.info(f"Updated distributor {distributor_id}")
 
         result = {
             'id': str(distributor.id),
@@ -808,3 +919,196 @@ class DistributorPaymentView(APIView):
             'currentOutstanding': float(allocation.current_outstanding),
             'allocatedAmount': float(allocation.allocated_amount),
         }
+
+class PurchaseDetailView(APIView):
+    """
+    GET /api/v1/purchases/{id}/
+    
+    Get details of a specific purchase invoice, including its items.
+    """
+    
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, purchase_id, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId')
+        
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response(
+                {'detail': f'Outlet {outlet_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        try:
+            # Prefetch distributor for full response shape
+            invoice = PurchaseInvoice.objects.select_related('distributor', 'created_by').prefetch_related('items').get(id=purchase_id, outlet=outlet)
+        except PurchaseInvoice.DoesNotExist:
+            return Response(
+                {'detail': f'Purchase invoice {purchase_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        result = {
+            'id': str(invoice.id),
+            'outletId': str(invoice.outlet_id),
+            'distributorId': str(invoice.distributor_id),
+            'distributor': {
+                'id': str(invoice.distributor.id),
+                'name': invoice.distributor.name,
+                'gstin': invoice.distributor.gstin,
+                'drugLicenseNo': invoice.distributor.drug_license_no,
+                'phone': invoice.distributor.phone,
+                'email': invoice.distributor.email,
+                'address': invoice.distributor.address,
+                'city': invoice.distributor.city,
+                'state': invoice.distributor.state,
+                'creditDays': invoice.distributor.credit_days,
+                'openingBalance': float(invoice.distributor.opening_balance) if invoice.distributor.opening_balance else 0,
+                'balanceType': invoice.distributor.balance_type,
+                'isActive': invoice.distributor.is_active,
+                'createdAt': invoice.distributor.created_at.isoformat(),
+            },
+            'invoiceNo': invoice.invoice_no,
+            'invoiceDate': invoice.invoice_date.isoformat(),
+            'dueDate': invoice.due_date.isoformat() if invoice.due_date else None,
+            'purchaseType': invoice.purchase_type,
+            'purchaseOrderRef': invoice.purchase_order_ref,
+            'godown': invoice.godown,
+            'subtotal': float(invoice.subtotal),
+            'discountAmount': float(invoice.discount_amount),
+            'taxableAmount': float(invoice.taxable_amount),
+            'gstAmount': float(invoice.gst_amount),
+            'cessAmount': float(invoice.cess_amount),
+            'freight': float(invoice.freight),
+            'roundOff': float(invoice.round_off),
+            'grandTotal': float(invoice.grand_total),
+            'amountPaid': float(invoice.amount_paid),
+            'outstanding': float(invoice.outstanding),
+            'items': [
+                {
+                    'id': str(item.id),
+                    'purchaseId': str(item.invoice_id),
+                    'masterProductId': str(item.master_product_id) if item.master_product_id else None,
+                    'customProductName': item.custom_product_name,
+                    'isCustomProduct': item.is_custom_product,
+                    'hsnCode': item.hsn_code,
+                    'batchNo': item.batch_no,
+                    'expiryDate': item.expiry_date.isoformat(),
+                    'pkg': item.pkg,
+                    'qty': item.qty,
+                    'actualQty': item.actual_qty,
+                    'freeQty': item.free_qty,
+                    'purchaseRate': float(item.purchase_rate),
+                    'discountPct': float(item.discount_pct),
+                    'cashDiscountPct': float(item.cash_discount_pct),
+                    'gstRate': float(item.gst_rate),
+                    'cess': float(item.cess),
+                    'mrp': float(item.mrp),
+                    'ptr': float(item.ptr),
+                    'pts': float(item.pts),
+                    'saleRate': float(item.sale_rate),
+                    'taxableAmount': float(item.taxable_amount),
+                    'gstAmount': float(item.gst_amount),
+                    'cessAmount': float(item.cess_amount),
+                    'totalAmount': float(item.total_amount),
+                } for item in invoice.items.all()
+            ],
+            'createdByName': invoice.created_by.name if invoice.created_by else 'Unknown',
+            'notes': invoice.notes,
+            'createdAt': invoice.created_at.isoformat(),
+        }
+        
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class PaymentListView(APIView):
+    """
+    GET /api/v1/purchases/payments/?distributorId=&from=&to=
+    Lists PaymentEntry records for an outlet with optional filters.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId')
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        qs = PaymentEntry.objects.filter(outlet=outlet)
+
+        distributor_id = request.query_params.get('distributorId')
+        if distributor_id:
+            qs = qs.filter(distributor_id=distributor_id)
+
+        from_str = request.query_params.get('from')
+        to_str = request.query_params.get('to')
+        if from_str:
+            try:
+                qs = qs.filter(date__gte=datetime.fromisoformat(from_str).date())
+            except ValueError:
+                pass
+        if to_str:
+            try:
+                qs = qs.filter(date__lte=datetime.fromisoformat(to_str).date())
+            except ValueError:
+                pass
+
+        data = []
+        for p in qs.select_related('distributor').order_by('-date', '-created_at'):
+            data.append({
+                'id': str(p.id),
+                'distributorId': str(p.distributor_id),
+                'distributorName': p.distributor.name,
+                'date': p.date.isoformat(),
+                'totalAmount': float(p.total_amount),
+                'paymentMode': p.payment_mode,
+                'referenceNo': p.reference_no,
+                'notes': p.notes,
+                'createdAt': p.created_at.isoformat(),
+            })
+
+        return Response({'success': True, 'data': data, 'meta': {'total': len(data)}}, status=status.HTTP_200_OK)
+
+
+class DistributorOutstandingView(APIView):
+    """
+    GET /api/v1/purchases/distributors/{pk}/outstanding/
+    Returns all unpaid PurchaseInvoices for a distributor.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId')
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            distributor = Distributor.objects.get(id=pk, outlet=outlet)
+        except Distributor.DoesNotExist:
+            return Response({'detail': 'Distributor not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        today = datetime.now().date()
+        invoices = PurchaseInvoice.objects.filter(
+            outlet=outlet, distributor=distributor, outstanding__gt=0
+        ).order_by('due_date')
+
+        data = []
+        for inv in invoices:
+            days_past = (today - inv.due_date).days if inv.due_date and inv.due_date < today else 0
+            data.append({
+                'id': str(inv.id),
+                'invoiceNo': inv.invoice_no,
+                'invoiceDate': inv.invoice_date.isoformat(),
+                'dueDate': inv.due_date.isoformat() if inv.due_date else None,
+                'grandTotal': float(inv.grand_total),
+                'amountPaid': float(inv.amount_paid),
+                'outstanding': float(inv.outstanding),
+                'isOverdue': inv.due_date is not None and inv.due_date < today,
+                'daysPastDue': max(0, days_past),
+            })
+
+        return Response({'success': True, 'data': data, 'meta': {'total': len(data)}}, status=status.HTTP_200_OK)

@@ -60,6 +60,7 @@ class SaleInvoice(models.Model):
 
     # Sale type
     is_return = models.BooleanField(default=False, help_text='Sales return/credit note')
+    has_return = models.BooleanField(default=False, help_text='True if a SalesReturn exists for this invoice')
 
     # Audit
     billed_by = models.ForeignKey('accounts.Staff', on_delete=models.SET_NULL, null=True)
@@ -407,16 +408,225 @@ class LedgerEntry(models.Model):
             raise ValidationError('Customer must be set when entity_type is customer')
 
     def save(self, *args, **kwargs):
-        # Prevent updates (append-only) - only check on explicit updates, not initial creation
-        force_insert = kwargs.get('force_insert', False)
-        if self.pk is not None and not force_insert:
-            # Check if this object already exists in the database
+        """Append-only: block any UPDATE attempt at the ORM level."""
+        if self.pk is not None:
             try:
                 LedgerEntry.objects.get(pk=self.pk)
-                # Object exists, so this is an update - prevent it
-                raise ValidationError('LedgerEntry is append-only and cannot be updated')
+                # Record already exists in DB — this is an update, reject it
+                raise ValidationError("LedgerEntry is append-only. Updates are not allowed.")
             except LedgerEntry.DoesNotExist:
-                # Object doesn't exist yet, so this is a creation - allow it
+                # pk set but not yet in DB (e.g. force_insert with explicit pk) — allow
                 pass
         self.clean()
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """Append-only: block any DELETE attempt at the ORM level."""
+        raise ValidationError("LedgerEntry is append-only. Deletion is not allowed.")
+
+
+class ReceiptEntry(models.Model):
+    """Payment received from a customer (with sale-invoice-level allocation)."""
+
+    PAYMENT_MODE_CHOICES = [
+        ('cash', 'Cash'),
+        ('upi', 'UPI'),
+        ('card', 'Card'),
+        ('cheque', 'Cheque'),
+        ('bank_transfer', 'Bank Transfer'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    outlet = models.ForeignKey('core.Outlet', on_delete=models.CASCADE, related_name='receipt_entries')
+    customer = models.ForeignKey('accounts.Customer', on_delete=models.PROTECT, related_name='receipt_entries')
+
+    date = models.DateField()
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    payment_mode = models.CharField(max_length=20, choices=PAYMENT_MODE_CHOICES)
+    reference_no = models.CharField(max_length=100, null=True, blank=True)
+    notes = models.TextField(null=True, blank=True)
+
+    created_by = models.ForeignKey('accounts.Staff', on_delete=models.SET_NULL, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OutletFilteredManager()
+
+    class Meta:
+        db_table = 'billing_receiptentry'
+        ordering = ['-date', '-created_at']
+        indexes = [
+            models.Index(fields=['outlet', 'customer']),
+            models.Index(fields=['outlet', 'date']),
+        ]
+
+    def __str__(self):
+        return f"Receipt from {self.customer.name}: ₹{self.total_amount}"
+
+
+class ReceiptAllocation(models.Model):
+    """Invoice-level allocation of a customer receipt."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    receipt = models.ForeignKey(ReceiptEntry, on_delete=models.CASCADE, related_name='allocations')
+    invoice = models.ForeignKey(SaleInvoice, on_delete=models.PROTECT, related_name='receipt_allocations')
+    allocated_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'billing_receiptallocation'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['receipt', 'invoice']),
+        ]
+
+    def __str__(self):
+        return f"Allocation: {self.invoice.invoice_no} ← ₹{self.allocated_amount}"
+
+
+class ExpenseEntry(models.Model):
+    """Cash/operational expense entry."""
+
+    EXPENSE_HEAD_CHOICES = [
+        ('rent', 'Rent'),
+        ('salary', 'Salary'),
+        ('electricity', 'Electricity'),
+        ('transport', 'Transport'),
+        ('maintenance', 'Maintenance'),
+        ('marketing', 'Marketing'),
+        ('other', 'Other'),
+    ]
+
+    PAYMENT_MODE_CHOICES = [
+        ('cash', 'Cash'),
+        ('upi', 'UPI'),
+        ('card', 'Card'),
+        ('cheque', 'Cheque'),
+        ('bank_transfer', 'Bank Transfer'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    outlet = models.ForeignKey('core.Outlet', on_delete=models.CASCADE, related_name='expense_entries')
+
+    date = models.DateField()
+    expense_head = models.CharField(max_length=50, choices=EXPENSE_HEAD_CHOICES)
+    custom_head = models.CharField(max_length=100, null=True, blank=True,
+                                   help_text='Only used when expense_head=other')
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    payment_mode = models.CharField(max_length=20, choices=PAYMENT_MODE_CHOICES)
+    reference_no = models.CharField(max_length=100, null=True, blank=True)
+    notes = models.TextField(null=True, blank=True)
+
+    created_by = models.ForeignKey('accounts.Staff', on_delete=models.SET_NULL, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OutletFilteredManager()
+
+    class Meta:
+        db_table = 'billing_expenseentry'
+        ordering = ['-date', '-created_at']
+        indexes = [
+            models.Index(fields=['outlet', 'date']),
+            models.Index(fields=['outlet', 'expense_head']),
+        ]
+
+    def __str__(self):
+        return f"{self.expense_head}: ₹{self.amount} on {self.date}"
+
+
+class SalesReturn(models.Model):
+    """Sales return / credit note for a previously issued sale invoice."""
+
+    REFUND_MODE_CHOICES = [
+        ('cash', 'Cash'),
+        ('upi', 'UPI'),
+        ('credit_note', 'Credit Note'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    outlet = models.ForeignKey('core.Outlet', on_delete=models.CASCADE, related_name='sales_returns')
+    original_sale = models.ForeignKey(SaleInvoice, on_delete=models.PROTECT, related_name='returns')
+
+    return_no = models.CharField(max_length=100, help_text='e.g., RTN-2026-000001')
+    return_date = models.DateField()
+    reason = models.TextField()
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    refund_mode = models.CharField(max_length=20, choices=REFUND_MODE_CHOICES)
+
+    created_by = models.ForeignKey('accounts.Staff', on_delete=models.SET_NULL, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OutletFilteredManager()
+
+    class Meta:
+        db_table = 'billing_salesreturn'
+        ordering = ['-return_date', '-created_at']
+        indexes = [
+            models.Index(fields=['outlet', 'return_date']),
+            models.Index(fields=['outlet', 'original_sale']),
+            models.Index(fields=['return_no', 'outlet']),
+        ]
+        unique_together = [['outlet', 'return_no']]
+
+    def __str__(self):
+        return f"{self.return_no} - ₹{self.total_amount}"
+
+
+class SalesReturnItem(models.Model):
+    """Individual item line in a sales return."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sales_return = models.ForeignKey(SalesReturn, on_delete=models.CASCADE, related_name='items')
+    original_sale_item = models.ForeignKey(SaleItem, on_delete=models.PROTECT, related_name='return_items')
+    batch = models.ForeignKey('inventory.Batch', on_delete=models.PROTECT, related_name='return_items')
+
+    # Denormalized from product/batch for reporting
+    product_name = models.CharField(max_length=255)
+    batch_no = models.CharField(max_length=100)
+
+    qty_returned = models.IntegerField()
+    return_rate = models.DecimalField(max_digits=10, decimal_places=2)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        db_table = 'billing_salesreturnitem'
+        ordering = ['-id']
+
+    def __str__(self):
+        return f"{self.product_name} x{self.qty_returned} @ ₹{self.return_rate}"
+
+
+class NotificationLog(models.Model):
+    """Log of WhatsApp/SMS notifications sent to customers."""
+
+    CHANNEL_CHOICES = [
+        ('whatsapp', 'WhatsApp'),
+        ('sms', 'SMS'),
+    ]
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('sent', 'Sent'),
+        ('failed', 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    outlet = models.ForeignKey('core.Outlet', on_delete=models.CASCADE, related_name='notification_logs')
+    customer = models.ForeignKey('accounts.Customer', on_delete=models.CASCADE, related_name='notification_logs')
+    channel = models.CharField(max_length=20, choices=CHANNEL_CHOICES, default='whatsapp')
+    message = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OutletFilteredManager()
+
+    class Meta:
+        db_table = 'billing_notificationlog'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['outlet', 'customer']),
+            models.Index(fields=['outlet', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.channel.upper()} to {self.customer.name}: {self.status}"

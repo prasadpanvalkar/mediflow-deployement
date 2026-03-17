@@ -38,7 +38,7 @@ export function useRecordCreditPayment() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: ({ accountId, payload }: { accountId: string; payload: RecordCreditPaymentPayload }) =>
-            creditApi.recordPayment(accountId, payload),
+            creditApi.recordPayment({ ...payload, creditAccountId: accountId }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['credit'] });
             queryClient.invalidateQueries({ queryKey: ['dashboard'] });

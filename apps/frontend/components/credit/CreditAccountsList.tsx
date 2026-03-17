@@ -96,7 +96,7 @@ export default function CreditAccountsList({
                 </div>
             ) : accounts && accounts.length > 0 ? (
                 <div className="space-y-3">
-                    {accounts.map((account) => {
+                    {accounts.map((account: any) => {
                         const status = STATUS_CONFIG[account.status] || STATUS_CONFIG.active;
                         const utilization = account.creditLimit > 0
                             ? (account.totalOutstanding / account.creditLimit) * 100

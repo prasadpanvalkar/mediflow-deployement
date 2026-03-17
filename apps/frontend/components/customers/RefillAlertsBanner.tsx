@@ -23,7 +23,7 @@ export default function RefillAlertsBanner({ isExpanded, onToggle }: RefillAlert
 
     if (!alerts || alerts.length === 0) return null;
 
-    const overdueCount = alerts.filter(a => a.daysOverdue > 0).length;
+    const overdueCount = alerts.filter((a: any) => a.daysOverdue > 0).length;
 
     const handleQuickBill = (alert: any) => {
         setCustomer(alert.customer);
@@ -58,7 +58,7 @@ export default function RefillAlertsBanner({ isExpanded, onToggle }: RefillAlert
             </CollapsibleTrigger>
             <CollapsibleContent>
                 <div className="mt-2 space-y-2">
-                    {alerts.map((alert) => (
+                    {alerts.map((alert: any) => (
                         <div
                             key={alert.customer.id}
                             className="bg-white rounded-lg border px-4 py-3 flex items-center justify-between gap-4"
@@ -79,7 +79,7 @@ export default function RefillAlertsBanner({ isExpanded, onToggle }: RefillAlert
 
                             {/* Medicines */}
                             <div className="hidden md:flex flex-col gap-1 flex-shrink-0">
-                                {alert.medicines.map((m) => (
+                                {alert.medicines.map((m: any) => (
                                     <div key={m.productId} className="flex items-center gap-1 text-xs text-slate-600">
                                         <Pill className="w-3 h-3" />
                                         <span>{m.name}</span>

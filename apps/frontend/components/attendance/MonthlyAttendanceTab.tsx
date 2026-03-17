@@ -9,7 +9,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMonthlyAttendance } from '@/hooks/useAttendance';
 import { useOutletId } from '@/hooks/useOutletId';
-import { mockStaff } from '@/mock/staff.mock';
+import { useStaffList } from '@/hooks/useStaff';
 import { AttendanceRecord, AttendanceStatus } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -147,6 +147,7 @@ function SingleStaffCalendar({
 }
 
 function TeamGrid({ records, month, year }: { records: AttendanceRecord[]; month: number; year: number }) {
+    const { data: staffList = [] } = useStaffList();
     const monthDate = new Date(year, month - 1, 1);
     const days = eachDayOfInterval({ start: startOfMonth(monthDate), end: endOfMonth(monthDate) });
 
@@ -164,7 +165,7 @@ function TeamGrid({ records, month, year }: { records: AttendanceRecord[]; month
                     </tr>
                 </thead>
                 <tbody>
-                    {mockStaff.map(staff => (
+                    {(staffList as any[]).map(staff => (
                         <tr key={staff.id} className="border-t">
                             <td className="pr-4 py-2 font-medium text-sm sticky left-0 bg-white">
                                 {staff.name.split(' ')[0]}
@@ -202,6 +203,7 @@ export function MonthlyAttendanceTab({
     onStaffChange,
 }: Props) {
     const outletId = useOutletId();
+    const { data: staffList = [] } = useStaffList();
     const { data: records = [], isLoading } = useMonthlyAttendance({
         staffId: selectedStaffId === 'all' ? undefined : selectedStaffId,
         month: selectedMonth,
@@ -253,7 +255,7 @@ export function MonthlyAttendanceTab({
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Staff</SelectItem>
-                            {mockStaff.map(s => (
+                            {staffList.map((s: any) => (
                                 <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                             ))}
                         </SelectContent>

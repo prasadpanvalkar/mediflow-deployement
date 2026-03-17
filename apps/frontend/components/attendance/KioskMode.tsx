@@ -6,8 +6,8 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useKioskCheckIn, useKioskCheckOut, useTodayAttendance } from '@/hooks/useAttendance';
-import { mockStaff } from '@/mock/staff.mock';
-import { STAFF_SHIFT_END } from '@/mock/attendance.mock';
+import { staffApi } from '@/lib/apiClient';
+import { useOutletSettings } from '@/hooks/useOutletSettings';
 import { StaffMember, AttendanceRecord } from '@/types';
 import {
     Building2, LogIn, LogOut, Lock, CheckCircle2,
@@ -23,8 +23,6 @@ type ActionType = 'check_in' | 'check_out';
 interface Props {
     onExit: () => void;
 }
-
-const ADMIN_EXIT_PIN = '0000'; // super_admin PIN
 
 // Lazily loaded webcam component (client-only, avoids SSR issues)
 let WebcamLib: any = null;
@@ -61,6 +59,7 @@ function WebcamCapture({ webcamRef, onError }: { webcamRef: React.MutableRefObje
 export function KioskMode({ onExit }: Props) {
     const { outlet } = useAuthStore();
     const { kioskPhotoCapture, kioskAutoResetSeconds } = useSettingsStore();
+    const { data: outletSettings } = useOutletSettings();
 
     const [step, setStep] = useState<KioskStep>('idle');
     const [actionType, setActionType] = useState<ActionType>('check_in');
@@ -169,13 +168,21 @@ export function KioskMode({ onExit }: Props) {
         setEnteredPin(p => p.slice(0, -1));
     }
 
-    function processPin(pin: string) {
+    async function processPin(pin: string) {
         if (exitPinMode) {
-            if (pin === ADMIN_EXIT_PIN) {
-                setExitPinMode(false);
-                setExitPin('');
-                onExit();
-            } else {
+            const outletId = outlet?.id ?? '';
+            try {
+                const staffData = await staffApi.lookupByPin(pin, outletId);
+                if (staffData.role === 'super_admin' || staffData.role === 'admin') {
+                    setExitPinMode(false);
+                    setExitPin('');
+                    onExit();
+                } else {
+                    triggerShake();
+                    setExitPin('');
+                    setTimeout(() => setExitPinMode(false), 1500);
+                }
+            } catch {
                 triggerShake();
                 setExitPin('');
                 setTimeout(() => setExitPinMode(false), 1500);
@@ -183,20 +190,23 @@ export function KioskMode({ onExit }: Props) {
             return;
         }
 
-        const staff = mockStaff.find(s => s.staffPin === pin);
-        if (!staff) {
+        const outletId = outlet?.id ?? '';
+        try {
+            // Look up staff by PIN only — returns staff details on match
+            const staffData = await staffApi.lookupByPin(pin, outletId);
+            setIdentifiedStaff(staffData);
+            setEnteredPin('');
+
+            if (kioskPhotoCapture) {
+                setStep('photo');
+            } else {
+                setStep('processing');
+                performAction(staffData, null);
+            }
+        } catch {
+            // Wrong PIN or network error — shake the keypad
             triggerShake();
             setTimeout(() => setEnteredPin(''), 1000);
-            return;
-        }
-        setIdentifiedStaff(staff);
-        setEnteredPin('');
-
-        if (kioskPhotoCapture) {
-            setStep('photo');
-        } else {
-            setStep('processing');
-            performAction(staff, null);
         }
     }
 
@@ -226,7 +236,7 @@ export function KioskMode({ onExit }: Props) {
     }
 
     async function performAction(staff: StaffMember, photo: string | null) {
-        const outletId = outlet?.id ?? 'outlet-001';
+        const outletId = outlet?.id ?? '';
         try {
             let record: AttendanceRecord;
             if (actionType === 'check_in') {
@@ -260,10 +270,12 @@ export function KioskMode({ onExit }: Props) {
         setStep('pin_entry');
     }
 
-    const staffStatuses = mockStaff.map(s => {
-        const rec = todayRecords?.find(r => r.staffId === s.id);
-        return { staff: s, record: rec };
-    });
+    // Build status strip from todayRecords — show names from attendance data
+    const staffStatuses = (todayRecords ?? []).map((record: any) => ({
+        id: record.staffId,
+        name: record.staffName ?? record.staffId,
+        record,
+    }));
 
     // ── Render ────────────────────────────────────────────────────────────────
 
@@ -329,15 +341,15 @@ export function KioskMode({ onExit }: Props) {
 
                     {/* Today's status strip */}
                     <div className="bg-slate-800 rounded-2xl px-8 py-4 flex gap-6 flex-wrap justify-center max-w-2xl">
-                        {staffStatuses.map(({ staff, record }) => (
-                            <div key={staff.id} className="flex flex-col items-center gap-1">
+                        {staffStatuses.map(({ id, name, record }: any) => (
+                            <div key={id} className="flex flex-col items-center gap-1">
                                 <Avatar className="w-10 h-10">
                                     <AvatarFallback className="bg-slate-600 text-white text-xs">
-                                        {staff.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                        {name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
                                     </AvatarFallback>
                                 </Avatar>
                                 <div className="text-xs text-slate-300 text-center max-w-16 leading-tight">
-                                    {staff.name.split(' ')[0]}
+                                    {name.split(' ')[0]}
                                 </div>
                                 {record?.checkOutTime ? (
                                     <span className="text-xs text-blue-400 font-medium">
@@ -527,7 +539,7 @@ export function KioskMode({ onExit }: Props) {
     if (step === 'success' && identifiedStaff) {
         const isCheckIn = actionType === 'check_in';
         const bgClass = isCheckIn ? 'bg-green-950' : 'bg-blue-950';
-        const shiftEnd = STAFF_SHIFT_END[identifiedStaff.id] ?? '18:00';
+        const shiftEnd = outletSettings?.closingTime ?? '21:00';
 
         return (
             <div className={cn('fixed inset-0 text-white z-50 flex flex-col items-center justify-center gap-6', bgClass)}>

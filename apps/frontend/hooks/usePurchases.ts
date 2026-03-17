@@ -40,7 +40,7 @@ export function useRecordPayment() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: ({ purchaseId, amount }: { purchaseId: string; amount: number }) =>
-            purchasesApi.recordPayment(purchaseId, amount),
+            purchasesApi.recordPayment({ purchaseId, amount }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['purchases'] });
             queryClient.invalidateQueries({ queryKey: ['distributors'] });

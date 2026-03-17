@@ -15,7 +15,7 @@ export function ExpiryTable({ onAdjustClick }: any) {
     const { data: expiringData, isLoading } = useExpiryReport(daysFilter);
     const data = expiringData || [];
 
-    const totalValue = data.reduce((acc, item) => acc + (item.batch.qtyStrips * item.batch.purchaseRate), 0);
+    const totalValue = data.reduce((acc: number, item: any) => acc + (item.batch.qtyStrips * item.batch.purchaseRate), 0);
 
     return (
         <div className="space-y-4">
@@ -73,7 +73,7 @@ export function ExpiryTable({ onAdjustClick }: any) {
                                     </TableRow>
                                 ))
                            ) : data.length > 0 ? (
-                                data.map((item, idx) => {
+                                data.map((item: any, idx: number) => {
                                     const { product, batch, daysRemaining } = item;
                                     let daysBadge = "";
                                     if (daysRemaining <= 0) daysBadge = "bg-red-600 text-white font-bold";

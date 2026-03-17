@@ -181,8 +181,8 @@ export function PurchaseItemRow({ index, value, onChange, onRemove, errors }: Pr
                                 expStatus === 'expired' && 'border-red-400 bg-red-50',
                                 expStatus === 'near'    && 'border-orange-300 bg-orange-50',
                             )}
-                            placeholder="MM/YY"
-                            maxLength={5}
+                            placeholder="MM/YY or MM/YYYY"
+                            maxLength={7}
                             value={
                                 value.expiryDate
                                     ? value.expiryDate.slice(0, 7).replace(/^(\d{4})-(\d{2})$/, '$2/$1')
@@ -190,10 +190,24 @@ export function PurchaseItemRow({ index, value, onChange, onRemove, errors }: Pr
                             }
                             onChange={(e) => {
                                 const raw = e.target.value;
-                                const m = raw.match(/^(\d{2})\/(\d{2})$/); // MM/YY
-                                if (m) {
-                                    const year = parseInt(m[2]) + 2000;
-                                    onChange(index, 'expiryDate', `${year}-${m[1]}-01`);
+                                const mShort = raw.match(/^(\d{2})\/(\d{2})$/);   // MM/YY
+                                const mLong  = raw.match(/^(\d{2})\/(\d{4})$/);   // MM/YYYY
+                                if (mShort) {
+                                    const month = parseInt(mShort[1]);
+                                    const year  = parseInt(mShort[2]) + 2000;
+                                    if (month >= 1 && month <= 12) {
+                                        onChange(index, 'expiryDate', `${year}-${mShort[1]}-01`);
+                                    } else {
+                                        onChange(index, 'expiryDate', raw);
+                                    }
+                                } else if (mLong) {
+                                    const month = parseInt(mLong[1]);
+                                    const year  = parseInt(mLong[2]);
+                                    if (month >= 1 && month <= 12) {
+                                        onChange(index, 'expiryDate', `${year}-${mLong[1]}-01`);
+                                    } else {
+                                        onChange(index, 'expiryDate', raw);
+                                    }
                                 } else {
                                     onChange(index, 'expiryDate', raw);
                                 }

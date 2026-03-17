@@ -51,7 +51,7 @@ export default function InventoryPage() {
 
     const handleExport = () => {
         if (activeTab === 'all' && stockData?.data) {
-             const rows = stockData.data.map(p => ({
+             const rows = stockData.data.map((p: any) => ({
                  name: p.name,
                  composition: p.composition,
                  manufacturer: p.manufacturer,
@@ -68,7 +68,7 @@ export default function InventoryPage() {
                  { key: 'nearestExpiry', label: 'Nearest Expiry' },
              ]);
         } else if (activeTab === 'expiring' && expiringData) {
-             const rows = expiringData.map(e => ({
+             const rows = expiringData.map((e: any) => ({
                   name: e.product.name,
                   batchNo: e.batch.batchNo,
                   expiry: e.batch.expiryDate,
@@ -83,7 +83,7 @@ export default function InventoryPage() {
                   { key: 'daysRemaining', label: 'Days Remaining' },
              ]);
         } else if (activeTab === 'low_stock' && lowStockData) {
-             const rows = lowStockData.map(p => ({
+             const rows = lowStockData.map((p: any) => ({
                   name: p.name,
                   qtyStrips: p.totalStock,
                   reorderLevel: 10,

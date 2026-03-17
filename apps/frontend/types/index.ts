@@ -88,6 +88,8 @@ export interface AuthUser {
     role: StaffRole;
     staffPin: string;
     outletId: string;
+    organizationId?: string;
+    isSuperAdmin?: boolean;
     outlet: Outlet;
     avatarUrl?: string;
     maxDiscount: number;
@@ -847,6 +849,91 @@ export interface ReportSummaryCard {
     changeLabel?: string;
     trend?: 'up' | 'down' | 'flat';
     color?: string;
+}
+
+// ─── Chain / Multi-outlet ──────────────────────────────────────────────────────
+
+export interface OrganizationSummary {
+    id: string;
+    name: string;
+    slug: string;
+    plan: 'starter' | 'pro' | 'enterprise';
+    masterGstin: string;
+    phone: string;
+    email: string;
+    outletCount: number;
+}
+
+export interface ChainOutletRow {
+    id: string;
+    name: string;
+    city: string;
+    state: string;
+    periodSales: number;
+    periodInvoices: number;
+    todaySales: number;
+}
+
+export interface ChainDashboard {
+    organization: { id: string; name: string };
+    period: { from: string; to: string };
+    totalSales: { total: number; invoices: number };
+    todaySales: { total: number; invoices: number };
+    totalPurchases: { total: number; invoices: number };
+    totalPayables: number;
+    totalReceivables: number;
+    outlets: ChainOutletRow[];
+}
+
+// ─── Balance Sheet ─────────────────────────────────────────────────────────────
+
+export interface BalanceSheet {
+    asOfDate: string;
+    assets: {
+        currentStock: number;
+        receivables: number;
+        cashAndBank: number;
+        totalAssets: number;
+        breakdown: { batchCount: number; customersWithOutstanding: number };
+    };
+    liabilities: {
+        payables: number;
+        totalLiabilities: number;
+        breakdown: { distributorsWithOutstanding: number };
+    };
+    netWorth: number;
+}
+
+// ─── GSTR-2A Reconciliation ────────────────────────────────────────────────────
+
+export interface GSTR2AInvoiceRow {
+    supplierGstin: string;
+    supplierName: string;
+    invoiceNo: string;
+    invoiceDate: string;
+    totalAmount: number;
+    gstAmount: number;
+    gstr2aAmount?: number;
+    variance?: number;
+}
+
+export interface GSTR2AReconciliation {
+    gstin: string;
+    period: { from: string; to: string };
+    summary: {
+        ourInvoices: number;
+        gstr2aInvoices: number;
+        matched: number;
+        ourOnly: number;
+        gstr2aOnly: number;
+        totalOurAmount: number;
+        totalGstr2aAmount: number;
+        totalVariance: number;
+    };
+    matched: GSTR2AInvoiceRow[];
+    ourOnly: GSTR2AInvoiceRow[];
+    gstr2aOnly: GSTR2AInvoiceRow[];
+    note: string;
 }
 
 // ─── Settings ─────────────────────────────────────────────────────────────────

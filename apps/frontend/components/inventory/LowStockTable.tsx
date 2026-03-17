@@ -55,7 +55,7 @@ export function LowStockTable({ onReorderClick }: any) {
                                     </TableRow>
                                 ))
                            ) : data.length > 0 ? (
-                                data.map((product, idx) => {
+                                data.map((product: any, idx: number) => {
                                     // Assume reorder level is 10 for all items in mock unless specified
                                     const reorderLevel = 10;
                                     const qty = product.totalStock;

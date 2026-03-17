@@ -6,6 +6,9 @@ from apps.purchases.views import (
     PurchaseCreateView,
     PurchaseListView,
     DistributorPaymentView,
+    PurchaseDetailView,
+    PaymentListView,
+    DistributorOutstandingView,
 )
 
 
@@ -18,10 +21,21 @@ class PurchasesView(PurchaseListView, PurchaseCreateView):
         return PurchaseCreateView.post(self, request, *args, **kwargs)
 
 
+# Combined GET + POST on payments endpoint
+class PaymentListCreateView(PaymentListView, DistributorPaymentView):
+    def get(self, request, *args, **kwargs):
+        return PaymentListView.get(self, request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        return DistributorPaymentView.post(self, request, *args, **kwargs)
+
+
 urlpatterns = [
     path('', PurchasesView.as_view(), name='purchase-list-create'),
-    path('payments/', DistributorPaymentView.as_view(), name='distributor-payment'),
+    path('payments/', PaymentListCreateView.as_view(), name='distributor-payment'),
+    path('distributors/<uuid:pk>/outstanding/', DistributorOutstandingView.as_view(), name='distributor-outstanding'),
     path('distributors/', DistributorListView.as_view(), name='distributor-list'),
     path('distributors/<uuid:distributor_id>/', DistributorDetailView.as_view(), name='distributor-detail'),
     path('distributors/<uuid:distributor_id>/ledger/', DistributorLedgerView.as_view(), name='distributor-ledger'),
+    path('<uuid:purchase_id>/', PurchaseDetailView.as_view(), name='purchase-detail'),
 ]

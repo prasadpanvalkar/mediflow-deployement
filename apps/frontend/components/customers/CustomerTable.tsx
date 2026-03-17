@@ -28,7 +28,7 @@ export default function CustomerTable({ filters }: CustomerTableProps) {
         );
     }
 
-    const customers = (data?.data ?? []) as CustomerFull[];
+    const customers = (data ?? []) as CustomerFull[];
 
     return (
         <div className="bg-white rounded-xl border overflow-hidden">

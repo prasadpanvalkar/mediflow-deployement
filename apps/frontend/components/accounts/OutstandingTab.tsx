@@ -152,9 +152,9 @@ export function OutstandingTab({ onPayNow, onReceivePayment }: Props) {
         entityName: string;
     }>({ open: false, entityType: 'distributor', entityId: '', entityName: '' });
 
-    const totalPayable    = (distOutstanding ?? []).reduce((s, d) => s + d.totalOutstanding, 0);
-    const overduePayable  = (distOutstanding ?? []).reduce((s, d) => s + d.overdueAmount, 0);
-    const totalReceivable = (custOutstanding ?? []).reduce((s, c) => s + c.totalOutstanding, 0);
+    const totalPayable    = (distOutstanding ?? []).reduce((s: number, d: any) => s + d.totalOutstanding, 0);
+    const overduePayable  = (distOutstanding ?? []).reduce((s: number, d: any) => s + d.overdueAmount, 0);
+    const totalReceivable = (custOutstanding ?? []).reduce((s: number, c: any) => s + c.totalOutstanding, 0);
 
     const isLoading = distLoading || custLoading;
 
@@ -207,7 +207,7 @@ export function OutstandingTab({ onPayNow, onReceivePayment }: Props) {
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            {(distOutstanding ?? []).map((d) => (
+                            {(distOutstanding ?? []).map((d: any) => (
                                 <DistributorCard
                                     key={d.distributorId}
                                     d={d}
@@ -254,7 +254,7 @@ export function OutstandingTab({ onPayNow, onReceivePayment }: Props) {
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            {(custOutstanding ?? []).map((c) => (
+                            {(custOutstanding ?? []).map((c: any) => (
                                 <CustomerCard
                                     key={c.customerId}
                                     c={c}

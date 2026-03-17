@@ -7,9 +7,9 @@ import { format } from 'date-fns';
 import { ClipboardEdit } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMarkManualAttendance } from '@/hooks/useAttendance';
+import { useStaffList } from '@/hooks/useStaff';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/use-toast';
-import { mockStaff } from '@/mock/staff.mock';
 import { manualAttendanceSchema, ManualAttendanceFormValues } from '@/lib/validations/attendance';
 import { AttendanceStatus } from '@/types';
 import {
@@ -42,6 +42,7 @@ export function ManualAttendanceModal({ isOpen, onClose, prefillStaffId, prefill
     const { user } = useAuthStore();
     const { toast } = useToast();
     const markManual = useMarkManualAttendance();
+    const { data: staffList = [] } = useStaffList();
 
     const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -82,7 +83,7 @@ export function ManualAttendanceModal({ isOpen, onClose, prefillStaffId, prefill
     const watchedDate = watch('date');
     const showTimePickers = watchedStatus === 'present' || watchedStatus === 'late' || watchedStatus === 'half_day';
 
-    const selectedStaff = mockStaff.find(s => s.id === watchedStaffId);
+    const selectedStaff = staffList.find((s: any) => s.id === watchedStaffId);
 
     // Check if there's an existing record for this staff+date (for warning)
     const hasExistingRecord = !!watchedStaffId && !!watchedDate;
@@ -98,7 +99,7 @@ export function ManualAttendanceModal({ isOpen, onClose, prefillStaffId, prefill
                 notes: data.notes || undefined,
                 markedBy: user?.id ?? '',
             });
-            const staffName = mockStaff.find(s => s.id === data.staffId)?.name ?? 'Staff';
+            const staffName = staffList.find((s: any) => s.id === data.staffId)?.name ?? 'Staff';
             toast({ title: `Attendance marked for ${staffName}` });
             onClose();
         } catch (err: any) {
@@ -132,7 +133,7 @@ export function ManualAttendanceModal({ isOpen, onClose, prefillStaffId, prefill
                                         <SelectValue placeholder="Select staff member" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {mockStaff.map(s => (
+                                            {staffList.map((s: any) => (
                                             <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                                         ))}
                                     </SelectContent>

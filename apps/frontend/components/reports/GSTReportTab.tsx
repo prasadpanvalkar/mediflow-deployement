@@ -105,8 +105,8 @@ export function GSTReportTab({ dateRange }: GSTReportTabProps) {
     if (!data) return null;
 
     const pieData = data.gstSlabBreakup
-        .filter(s => s.taxAmount > 0)
-        .map(s => ({
+        .filter((s: any) => s.taxAmount > 0)
+        .map((s: any) => ({
             name: `${s.rate}% GST`,
             value: s.taxAmount,
             rate: s.rate,
@@ -116,7 +116,7 @@ export function GSTReportTab({ dateRange }: GSTReportTabProps) {
         <div className="space-y-6">
             {/* GST Slab Summary Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {data.gstSlabBreakup.map(slab => (
+                {data.gstSlabBreakup.map((slab: any) => (
                     <div key={slab.rate} className="bg-white rounded-xl border p-4">
                         <p className="text-2xl font-bold" style={{ color: SLAB_COLORS[slab.rate] ?? '#0f172a' }}>
                             {slab.rate}% GST
@@ -170,7 +170,7 @@ export function GSTReportTab({ dateRange }: GSTReportTabProps) {
                             dataKey="value"
                             label={({ name, percent }: { name?: string; percent?: number }) => `${name ?? ''} (${((percent ?? 0) * 100).toFixed(0)}%)`}
                         >
-                            {pieData.map((entry, idx) => (
+                            {pieData.map((entry: any, idx: number) => (
                                 <Cell key={idx} fill={SLAB_COLORS[entry.rate] ?? '#94a3b8'} />
                             ))}
                         </Pie>

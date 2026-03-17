@@ -56,6 +56,8 @@ class MasterProduct(models.Model):
     is_fridge = models.BooleanField(default=False, help_text='Requires cold storage')
     is_discontinued = models.BooleanField(default=False)
     image_url = models.URLField(null=True, blank=True)
+    min_qty = models.IntegerField(default=10, help_text='Low-stock threshold in strips')
+    reorder_qty = models.IntegerField(default=50, help_text='Suggested reorder quantity')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -76,7 +78,7 @@ class Batch(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     outlet = models.ForeignKey('core.Outlet', on_delete=models.CASCADE, related_name='batches')
-    product = models.ForeignKey(MasterProduct, on_delete=models.CASCADE, related_name='batches')
+    product = models.ForeignKey(MasterProduct, on_delete=models.SET_NULL, null=True, blank=True, related_name='batches')
     batch_no = models.CharField(max_length=100)
     mfg_date = models.DateField(null=True, blank=True)
     expiry_date = models.DateField()
@@ -87,6 +89,7 @@ class Batch(models.Model):
     qty_loose = models.IntegerField(default=0, help_text='Number of loose units (< 1 pack)')
     rack_location = models.CharField(max_length=100, null=True, blank=True, help_text='Physical shelf/rack location')
     is_active = models.BooleanField(default=True)
+    is_opening_stock = models.BooleanField(default=False, help_text='True if imported as opening stock (Marg migration)')
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = OutletFilteredManager()
@@ -105,7 +108,8 @@ class Batch(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.product.name} - {self.batch_no} (Exp: {self.expiry_date})"
+        product_name = self.product.name if self.product else "Custom Product"
+        return f"{product_name} - {self.batch_no} (Exp: {self.expiry_date})"
 
     def clean(self):
         """Validate that quantities never go below 0."""
@@ -122,14 +126,17 @@ class Batch(models.Model):
     @property
     def total_stock(self):
         """Calculate total stock quantity (for reporting)."""
-        return (self.qty_strips * self.product.pack_size) + self.qty_loose
+        pack_size = self.product.pack_size if self.product else 1
+        return (self.qty_strips * pack_size) + self.qty_loose
 
     @property
     def stock_value(self):
         """Calculate stock value at purchase rate."""
-        return float(self.purchase_rate) * (self.qty_strips + (self.qty_loose / self.product.pack_size))
+        pack_size = self.product.pack_size if self.product else 1
+        return float(self.purchase_rate) * (self.qty_strips + (self.qty_loose / pack_size))
 
     @property
     def mrp_value(self):
         """Calculate stock value at MRP."""
-        return float(self.mrp) * (self.qty_strips + (self.qty_loose / self.product.pack_size))
+        pack_size = self.product.pack_size if self.product else 1
+        return float(self.mrp) * (self.qty_strips + (self.qty_loose / pack_size))

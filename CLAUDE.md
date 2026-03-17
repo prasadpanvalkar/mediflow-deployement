@@ -179,3 +179,9 @@ Phase 5: Switch USE_MOCK=false
 - Frontend types live in packages/types/index.ts
 - Every Django model MUST map to a corresponding TypeScript type
 - Never create a model field that doesn't exist in packages/types/index.ts
+
+
+
+## Key Reference Files
+- docs/backend-documentation.md — frontend team's full API specification (converted from PDF)
+- packages/types/index.ts — TypeScript interfaces (source of truth for all response shapes)

@@ -1,4 +1,5 @@
 import logging
+import calendar
 from datetime import datetime, timedelta, time
 from decimal import Decimal
 from rest_framework.views import APIView
@@ -20,72 +21,66 @@ DEFAULT_SHIFT_END = time(18, 0)   # 6:00 PM
 LATE_GRACE_PERIOD_MINUTES = 10
 
 
+def serialize_attendance_record(record):
+    """Serialize AttendanceRecord to response shape."""
+    return {
+        'id': str(record.id),
+        'staffId': str(record.staff_id),
+        'staffName': record.staff.name,
+        'staff': {
+            'id': str(record.staff.id),
+            'name': record.staff.name,
+            'role': record.staff.role,
+        },
+        'outletId': str(record.outlet_id),
+        'date': record.date.isoformat(),
+        'checkInTime': record.check_in_time.isoformat() if record.check_in_time else None,
+        'checkOutTime': record.check_out_time.isoformat() if record.check_out_time else None,
+        'status': record.status,
+        'isLate': record.is_late,
+        'lateByMinutes': record.late_by_minutes,
+        'workingHours': float(record.working_hours) if record.working_hours else None,
+        'checkInPhoto': record.check_in_photo,
+        'checkOutPhoto': record.check_out_photo,
+        'notes': record.notes,
+        'createdAt': record.created_at.isoformat(),
+    }
+
+
 class AttendanceCheckInView(APIView):
     """
     POST /api/v1/attendance/check-in/
-
-    Record staff check-in/check-out with optional selfie photo.
-    Validates staffPin, checks shift timing, and creates AttendanceRecord.
-
-    Request body:
-    {
-        "outletId": "...",
-        "staffId": "...",
-        "staffPin": "0000",
-        "type": "check_in" | "check_out",
-        "selfieUrl": "data:image/jpeg;base64,..." (optional)
-    }
-
-    Response: AttendanceRecord (201 Created) or error (400/401/404/500)
     """
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        """Record attendance check-in or check-out."""
-
         try:
             payload = request.data
             outlet_id = payload.get('outletId')
             staff_id = payload.get('staffId')
-            staff_pin = payload.get('staffPin')
             check_type = payload.get('type', 'check_in')
-            selfie_url = payload.get('selfieUrl')
+            photo = payload.get('photoBase64') or payload.get('selfieUrl')
 
-            # Validate outlet exists
             try:
                 outlet = Outlet.objects.get(id=outlet_id)
             except Outlet.DoesNotExist:
-                logger.warning(f"Outlet {outlet_id} not found")
                 return Response(
                     {'error': {'code': 'OUTLET_NOT_FOUND', 'message': 'Outlet not found'}},
                     status=status.HTTP_404_NOT_FOUND
                 )
 
-            # Validate staff exists and pin matches
             try:
                 staff = Staff.objects.get(id=staff_id, outlet=outlet)
             except Staff.DoesNotExist:
-                logger.warning(f"Staff {staff_id} not found for outlet {outlet_id}")
                 return Response(
                     {'error': {'code': 'STAFF_NOT_FOUND', 'message': 'Staff not found'}},
                     status=status.HTTP_404_NOT_FOUND
                 )
 
-            # Validate PIN
-            if staff.staff_pin != staff_pin:
-                logger.warning(f"Invalid PIN for staff {staff.name}")
-                return Response(
-                    {'error': {'code': 'INVALID_PIN', 'message': 'Invalid staff PIN'}},
-                    status=status.HTTP_401_UNAUTHORIZED
-                )
-
             today = timezone.now().date()
             current_time = timezone.now().time()
 
-            logger.info(f"Processing {check_type} for {staff.name} at {outlet.name}")
-
-            # Use transaction for consistency
             with transaction.atomic():
-                # Get or create today's attendance record
                 record, created = AttendanceRecord.objects.get_or_create(
                     outlet=outlet,
                     staff=staff,
@@ -94,19 +89,15 @@ class AttendanceCheckInView(APIView):
                 )
 
                 if check_type == 'check_in':
-                    # Validate no previous check-in today
                     if record.check_in_time:
-                        logger.warning(f"Staff {staff.name} already checked in today")
                         return Response(
                             {'error': {'code': 'ALREADY_CHECKED_IN', 'message': 'Already checked in today'}},
                             status=status.HTTP_400_BAD_REQUEST
                         )
 
-                    # Record check-in time
                     record.check_in_time = current_time
-                    record.check_in_photo = selfie_url
+                    record.check_in_photo = photo
 
-                    # Calculate if late (with grace period)
                     grace_end = datetime.combine(today, DEFAULT_SHIFT_START) + timedelta(minutes=LATE_GRACE_PERIOD_MINUTES)
                     current_datetime = datetime.combine(today, current_time)
 
@@ -115,47 +106,34 @@ class AttendanceCheckInView(APIView):
                         late_delta = current_datetime - datetime.combine(today, DEFAULT_SHIFT_START)
                         record.late_by_minutes = int(late_delta.total_seconds() / 60)
                         record.status = 'late'
-                        logger.info(f"{staff.name} checked in late by {record.late_by_minutes} minutes")
                     else:
                         record.status = 'present'
-                        logger.info(f"{staff.name} checked in on time")
 
                 elif check_type == 'check_out':
-                    # Validate check-in exists
                     if not record.check_in_time:
-                        logger.warning(f"No check-in record for {staff.name} today")
                         return Response(
                             {'error': {'code': 'NOT_CHECKED_IN', 'message': 'No check-in record found for today'}},
                             status=status.HTTP_400_BAD_REQUEST
                         )
 
-                    # Validate no previous check-out
                     if record.check_out_time:
-                        logger.warning(f"Staff {staff.name} already checked out today")
                         return Response(
                             {'error': {'code': 'ALREADY_CHECKED_OUT', 'message': 'Already checked out today'}},
                             status=status.HTTP_400_BAD_REQUEST
                         )
 
-                    # Record check-out time
                     record.check_out_time = current_time
-                    record.check_out_photo = selfie_url
+                    record.check_out_photo = photo
 
-                    # Calculate working hours
                     check_in_datetime = datetime.combine(today, record.check_in_time)
                     check_out_datetime = datetime.combine(today, current_time)
                     working_seconds = (check_out_datetime - check_in_datetime).total_seconds()
                     working_hours = Decimal(str(round(working_seconds / 3600, 2)))
                     record.working_hours = working_hours
 
-                    logger.info(f"{staff.name} checked out after {working_hours} hours")
-
                 record.save()
-                logger.info(f"Attendance record saved for {staff.name}")
 
-            # Serialize response
-            result = self._serialize_attendance_record(record)
-            return Response(result, status=status.HTTP_201_CREATED)
+            return Response(serialize_attendance_record(record), status=status.HTTP_201_CREATED)
 
         except Exception as e:
             logger.error(f"Error processing attendance: {e}", exc_info=True)
@@ -164,26 +142,216 @@ class AttendanceCheckInView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    def _serialize_attendance_record(self, record):
-        """Serialize AttendanceRecord to response shape."""
-        return {
-            'id': str(record.id),
-            'staffId': str(record.staff_id),
-            'staff': {
-                'id': str(record.staff.id),
-                'name': record.staff.name,
-                'role': record.staff.role,
-            },
-            'outletId': str(record.outlet_id),
-            'date': record.date.isoformat(),
-            'checkInTime': record.check_in_time.isoformat() if record.check_in_time else None,
-            'checkOutTime': record.check_out_time.isoformat() if record.check_out_time else None,
-            'status': record.status,
-            'isLate': record.is_late,
-            'lateByMinutes': record.late_by_minutes,
-            'workingHours': float(record.working_hours) if record.working_hours else None,
-            'checkInPhoto': record.check_in_photo,
-            'checkOutPhoto': record.check_out_photo,
-            'notes': record.notes,
-            'createdAt': record.created_at.isoformat(),
-        }
+
+class AttendanceCheckOutView(APIView):
+    """
+    POST /api/v1/attendance/check-out/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        try:
+            payload = request.data
+            staff_id = payload.get('staffId')
+            photo = payload.get('photo')
+
+            staff = Staff.objects.get(id=staff_id)
+            today = timezone.now().date()
+            current_time = timezone.now().time()
+
+            try:
+                record = AttendanceRecord.objects.get(staff=staff, date=today, check_out_time__isnull=True)
+            except AttendanceRecord.DoesNotExist:
+                return Response({'error': {'code': 'NOT_FOUND', 'message': 'No active check-in found'}}, status=400)
+
+            record.check_out_time = current_time
+            if photo:
+                record.check_out_photo = photo
+                
+            check_in_dt = datetime.combine(today, record.check_in_time)
+            check_out_dt = datetime.combine(today, current_time)
+            working_seconds = (check_out_dt - check_in_dt).total_seconds()
+            
+            record.working_hours = Decimal(str(round(working_seconds / 3600, 2)))
+            record.save()
+            return Response(serialize_attendance_record(record), status=status.HTTP_200_OK)
+
+        except Staff.DoesNotExist:
+            return Response({'error': {'code': 'STAFF_NOT_FOUND', 'message': 'Staff not found'}}, status=404)
+        except Exception as e:
+            logger.error(f"Error check out: {e}")
+            return Response({'error': 'Failed'}, status=500)
+
+
+class AttendanceTodayView(APIView):
+    """
+    GET /api/v1/attendance/today/?outletId=xxx
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId')
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': f'Outlet {outlet_id} not found'}, status=404)
+        
+        today = timezone.now().date()
+        records = AttendanceRecord.objects.filter(outlet=outlet, date=today).select_related('staff')
+        
+        results = [serialize_attendance_record(r) for r in records]
+        return Response(results, status=status.HTTP_200_OK)
+
+
+class AttendanceMonthlyView(APIView):
+    """
+    GET /api/v1/attendance/?outletId=xxx&month=2026-03
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId')
+        month_str = request.query_params.get('month') # expected YYYY-MM
+        staff_id = request.query_params.get('staffId')
+        
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': f'Outlet {outlet_id} not found'}, status=404)
+            
+        qs = AttendanceRecord.objects.filter(outlet=outlet).select_related('staff')
+        
+        if month_str:
+            try:
+                year, month = map(int, month_str.split('-'))
+                qs = qs.filter(date__year=year, date__month=month)
+            except ValueError:
+                pass
+                
+        if staff_id:
+            qs = qs.filter(staff_id=staff_id)
+            
+        results = [serialize_attendance_record(r) for r in qs.order_by('date', 'staff__name')]
+        return Response(results, status=status.HTTP_200_OK)
+
+
+class AttendanceSummaryView(APIView):
+    """
+    GET /api/v1/attendance/summary/?outletId=xxx&month=2026-03
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        outlet_id = request.query_params.get('outletId')
+        month_str = request.query_params.get('month') 
+        
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': f'Outlet {outlet_id} not found'}, status=404)
+            
+        if not month_str:
+            return Response({'detail': 'month parameter is required'}, status=400)
+            
+        try:
+            year, month = map(int, month_str.split('-'))
+        except ValueError:
+            return Response({'detail': 'invalid month format'}, status=400)
+        
+        staff_list = Staff.objects.filter(outlet=outlet, is_active=True)
+        records = AttendanceRecord.objects.filter(
+            outlet=outlet, 
+            date__year=year, 
+            date__month=month
+        )
+        
+        _, num_days = calendar.monthrange(year, month)
+        
+        results = []
+        for staff in staff_list:
+            staff_records = [r for r in records if r.staff_id == staff.id]
+            
+            present_days = sum(1 for r in staff_records if r.status in ['present', 'late'])
+            late_days = sum(1 for r in staff_records if r.status == 'late' or r.is_late)
+            absent_days = sum(1 for r in staff_records if r.status == 'absent')
+            half_days = sum(1 for r in staff_records if r.status == 'half_day')
+            total_hours = sum((r.working_hours or 0) for r in staff_records)
+            
+            check_ins = [datetime.combine(r.date, r.check_in_time) for r in staff_records if r.check_in_time]
+            avg_check_in = None
+            if check_ins:
+                avg_seconds = sum((ci.hour * 3600 + ci.minute * 60 + ci.second) for ci in check_ins) / len(check_ins)
+                h = int(avg_seconds // 3600)
+                m = int((avg_seconds % 3600) // 60)
+                avg_check_in = f"{h:02d}:{m:02d}:00"
+                
+            attendance_pct = (present_days / num_days) * 100 if num_days > 0 else 0
+            
+            results.append({
+                'staffId': str(staff.id),
+                'staffName': staff.name,
+                'role': staff.role,
+                'month': month,
+                'year': year,
+                'totalWorkingDays': num_days,
+                'presentDays': present_days,
+                'absentDays': absent_days,
+                'lateDays': late_days,
+                'halfDays': half_days,
+                'totalHoursWorked': float(total_hours),
+                'avgCheckInTime': avg_check_in or "00:00:00",
+                'attendancePct': round(attendance_pct, 1)
+            })
+            
+        return Response(results, status=status.HTTP_200_OK)
+
+
+class AttendanceManualView(APIView):
+    """
+    POST /api/v1/attendance/manual/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        outlet_id = request.data.get('outletId')
+        staff_id = request.data.get('staffId')
+        date_str = request.data.get('date')
+        status_val = request.data.get('status')
+        notes = request.data.get('notes')
+        
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+            staff = Staff.objects.get(id=staff_id, outlet=outlet)
+        except (Outlet.DoesNotExist, Staff.DoesNotExist):
+            return Response({'detail': 'Outlet or Staff not found'}, status=404)
+            
+        try:
+            record_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except TypeError:
+             return Response({'detail': 'Date string required'}, status=400)
+        
+        record, created = AttendanceRecord.objects.get_or_create(
+            outlet=outlet,
+            staff=staff,
+            date=record_date,
+            defaults={'status': status_val}
+        )
+        
+        record.status = status_val
+        record.notes = notes
+        
+        check_in = request.data.get('checkInTime')
+        check_out = request.data.get('checkOutTime')
+        if check_in:
+            record.check_in_time = datetime.strptime(check_in, '%H:%M:%S').time() if len(check_in) > 5 else datetime.strptime(check_in, '%H:%M').time()
+        if check_out:
+            record.check_out_time = datetime.strptime(check_out, '%H:%M:%S').time() if len(check_out) > 5 else datetime.strptime(check_out, '%H:%M').time()
+            
+        if record.check_in_time and record.check_out_time:
+            ci = datetime.combine(record_date, record.check_in_time)
+            co = datetime.combine(record_date, record.check_out_time)
+            record.working_hours = Decimal(str(round((co - ci).total_seconds() / 3600, 2)))
+            
+        record.save()
+        
+        return Response(serialize_attendance_record(record), status=status.HTTP_200_OK)

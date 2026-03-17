@@ -73,9 +73,9 @@ function DistributorLedgerContent({ entityId, from, to }: { entityId: string; fr
         );
     }
 
-    const entries = (data?.entries ?? []).filter(e => e.date >= from && e.date <= to);
+    const entries = (((data as any)?.entries) ?? []).filter((e: any) => e.date >= from && e.date <= to);
 
-    return <LedgerTable entries={entries} openingBalance={data?.openingBalance ?? 0} closingBalance={data?.closingBalance ?? 0} />;
+    return <LedgerTable entries={entries} openingBalance={(data as any)?.openingBalance ?? 0} closingBalance={(data as any)?.closingBalance ?? 0} />;
 }
 
 function CustomerLedgerContent({ entityId, from, to }: { entityId: string; from: string; to: string }) {
@@ -98,9 +98,9 @@ function CustomerLedgerContent({ entityId, from, to }: { entityId: string; from:
         );
     }
 
-    const entries = (data?.entries ?? []).filter(e => e.date >= from && e.date <= to);
+    const entries = (((data as any)?.entries) ?? []).filter((e: any) => e.date >= from && e.date <= to);
 
-    return <LedgerTable entries={entries} openingBalance={data?.openingBalance ?? 0} closingBalance={data?.closingBalance ?? 0} />;
+    return <LedgerTable entries={entries} openingBalance={(data as any)?.openingBalance ?? 0} closingBalance={(data as any)?.closingBalance ?? 0} />;
 }
 
 function LedgerTable({ entries, openingBalance, closingBalance }: {

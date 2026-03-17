@@ -23,6 +23,9 @@ class Organization(models.Model):
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True)
     plan = models.CharField(max_length=20, choices=PLAN_CHOICES, default='starter')
+    master_gstin = models.CharField(max_length=15, blank=True, default='')
+    phone = models.CharField(max_length=20, blank=True, default='')
+    email = models.EmailField(blank=True, default='')
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -63,3 +66,32 @@ class Outlet(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class OutletSettings(models.Model):
+    """Per-outlet configuration (get_or_create, never crash if missing)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    outlet = models.OneToOneField(Outlet, on_delete=models.CASCADE, related_name='settings')
+
+    opening_time = models.TimeField(default='09:00')
+    closing_time = models.TimeField(default='21:00')
+    grace_period_minutes = models.IntegerField(default=15)
+    default_credit_days = models.IntegerField(default=30)
+    invoice_prefix = models.CharField(max_length=10, default='INV')
+    gst_registered = models.BooleanField(default=True)
+    print_logo = models.BooleanField(default=True)
+    thermal_print = models.BooleanField(default=False)
+    printer_width = models.IntegerField(default=80)
+    low_stock_alert_days = models.IntegerField(default=7)
+    expiry_alert_days = models.IntegerField(default=30)
+    enable_whatsapp = models.BooleanField(default=False)
+    whatsapp_api_key = models.CharField(max_length=200, null=True, blank=True)
+    currency_symbol = models.CharField(max_length=5, default='₹')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'core_outletsettings'
+
+    def __str__(self):
+        return f"Settings for {self.outlet.name}"

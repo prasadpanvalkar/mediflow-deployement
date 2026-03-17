@@ -49,7 +49,7 @@ class Staff(AbstractBaseUser, PermissionsMixin):
     phone = models.CharField(max_length=20, unique=True)
     email = models.EmailField(null=True, blank=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='billing_staff')
-    staff_pin = models.CharField(max_length=20, help_text='PIN for kiosk/quick auth')
+    staff_pin = models.CharField(max_length=128, help_text='PIN for kiosk/quick auth')
     avatar_url = models.URLField(null=True, blank=True)
     max_discount = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     can_edit_rate = models.BooleanField(default=False)
@@ -145,7 +145,7 @@ class Doctor(models.Model):
     outlet = models.ForeignKey('core.Outlet', on_delete=models.CASCADE, related_name='doctors')
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=20)
-    reg_no = models.CharField(max_length=50, help_text='Medical registration number')
+    registration_no = models.CharField(max_length=50, null=True, blank=True, help_text='Medical registration number')
     qualification = models.CharField(max_length=255)
     specialty = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
@@ -163,3 +163,66 @@ class Doctor(models.Model):
 
     def __str__(self):
         return f"Dr. {self.name} ({self.specialty})"
+
+
+class RegularMedicine(models.Model):
+    """
+    A medicine that a customer takes regularly (chronic patient refill tracking).
+    Maps exactly to the RegularMedicine TypeScript interface:
+      productId, name, qty, frequency (Daily | Weekly | Monthly)
+    """
+
+    FREQUENCY_CHOICES = [
+        ('Daily', 'Daily'),
+        ('Weekly', 'Weekly'),
+        ('Monthly', 'Monthly'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.CASCADE,
+        related_name='regular_medicines',
+    )
+    outlet = models.ForeignKey(
+        'core.Outlet',
+        on_delete=models.CASCADE,
+        related_name='regular_medicines',
+        help_text='Denormalized from customer for outlet-level filtering',
+    )
+
+    # Fields matching RegularMedicine TypeScript interface exactly
+    product_id = models.CharField(
+        max_length=255,
+        help_text='productId — references the Product record',
+    )
+    name = models.CharField(
+        max_length=255,
+        help_text='Medicine name (denormalized for display speed)',
+    )
+    qty = models.PositiveIntegerField(
+        default=1,
+        help_text='Quantity per refill',
+    )
+    frequency = models.CharField(
+        max_length=10,
+        choices=FREQUENCY_CHOICES,
+        default='Monthly',
+        help_text='How often the medicine is refilled: Daily | Weekly | Monthly',
+    )
+    notes = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OutletFilteredManager()
+
+    class Meta:
+        db_table = 'accounts_regular_medicine'
+        ordering = ['name']
+        indexes = [
+            models.Index(fields=['customer', 'outlet']),
+            models.Index(fields=['outlet', 'product_id']),
+        ]
+
+    def __str__(self):
+        return f"{self.name} x{self.qty} ({self.frequency}) — {self.customer.name}"
