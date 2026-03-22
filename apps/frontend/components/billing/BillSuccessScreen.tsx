@@ -19,7 +19,7 @@ export function BillSuccessScreen({ invoice, onNewBill, onPrint, onViewInvoice }
     const isOfflineMode = String(invoice.invoiceNo).startsWith('OFFLINE');
 
     return (
-        <div className="flex flex-col items-center justify-center h-full max-w-md mx-auto text-center px-4 animate-in fade-in zoom-in-95 duration-500">
+        <div data-testid="invoice-success" className="flex flex-col items-center justify-center h-full max-w-md mx-auto text-center px-4 animate-in fade-in zoom-in-95 duration-500">
             
             <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mb-6 shadow-sm">
                 <CheckCircle2 className="w-10 h-10 text-green-600" />
@@ -37,7 +37,7 @@ export function BillSuccessScreen({ invoice, onNewBill, onPrint, onViewInvoice }
 
             <div className="bg-slate-100 rounded-xl px-6 py-4 mt-6 w-full border border-slate-200">
                 <p className="text-sm text-slate-500 uppercase tracking-wider font-semibold mb-1">Invoice Number</p>
-                <div className="font-mono text-2xl font-bold text-slate-900">
+                <div data-testid="invoice-number" className="font-mono text-2xl font-bold text-slate-900">
                     {invoice.invoiceNo}
                 </div>
                 

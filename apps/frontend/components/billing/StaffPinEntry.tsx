@@ -66,7 +66,7 @@ export function StaffPinEntry() {
     }, [handleInput])
 
     return (
-        <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-sm flex items-center justify-center p-4">
+        <div data-testid="pin-overlay" className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-2xl text-center relative overflow-hidden">
                 {isSuccess && (
                     <div className="absolute inset-0 bg-white/90 z-10 flex flex-col items-center justify-center animate-in fade-in duration-300">
@@ -84,6 +84,18 @@ export function StaffPinEntry() {
                         4-digit staff PIN to start billing session
                     </p>
                 </div>
+
+                {/* Hidden focusable input for automated testing — window keydown listener handles actual PIN logic */}
+                <input
+                    data-testid="pin-input"
+                    type="password"
+                    className="sr-only"
+                    autoFocus
+                    readOnly
+                    value=""
+                    onChange={() => {}}
+                    aria-label="PIN input"
+                />
 
                 <div className={cn("flex gap-3 justify-center mt-6", isShaking && "animate-shake")}>
                     {[0, 1, 2, 3].map((index) => {
@@ -105,7 +117,7 @@ export function StaffPinEntry() {
                 </div>
 
                 <div className="h-6 mt-3">
-                    {error && <p className="text-sm text-red-600 animate-in fade-in">{error}</p>}
+                    {error && <p data-testid="pin-error" className="text-sm text-red-600 animate-in fade-in">{error}</p>}
                 </div>
 
                 <div className="grid grid-cols-3 gap-3 mt-4">

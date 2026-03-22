@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MediFlow is a pharmacy management SaaS for Indian retail pharmacies. Next.js 14 (App Router) frontend + Django 5 backend, managed as a Turbo monorepo. Currently Stage 13 of development — all screens use MOCK data (`USE_MOCK=true`).
+MediFlow is a pharmacy management SaaS for Indian retail pharmacies. Next.js 14 (App Router) frontend + Django 5 backend, managed as a Turbo monorepo. All phases complete — frontend runs live on real API (`NEXT_PUBLIC_USE_MOCK=false`).
 
 ## Development Commands
 
@@ -20,7 +20,10 @@ npm run dev          # Next.js dev server on port 3000
 npm run build
 npm run lint
 npm run type-check   # Run this after every change
-npm test
+npm test             # Jest unit + integration tests
+npm test -- --testPathPattern=billing   # Run a single test file by path pattern
+npm run test:e2e     # Playwright e2e tests (requires dev server on :3000)
+npm run test:e2e:ui  # Playwright UI mode
 ```
 
 ### Backend (apps/backend)
@@ -28,6 +31,8 @@ npm test
 cd apps/backend
 python manage.py migrate
 python manage.py runserver      # Django dev server on port 8000
+python manage.py test           # All tests across all apps
+python manage.py test apps.billing.tests  # Single app's tests
 ```
 
 ### Monorepo (root)
@@ -40,7 +45,7 @@ npm run build
 
 ### Monorepo
 - `apps/frontend/` — Next.js 14 app (App Router)
-- `apps/backend/` — Django 5 REST API (mocked for now)
+- `apps/backend/` — Django 5 REST API
 - `packages/constants/` — Shared constants (GST rates, Indian states, drug schedules, staff roles)
 - `packages/types/` — Shared TypeScript types
 
@@ -62,10 +67,15 @@ npm run build
 - `store/settingsStore.ts` — Sidebar, printer, kiosk settings, persisted
 
 **Data layer**:
-- `lib/apiClient.ts` — Exports one API object per domain; routes to mock or real
+- `lib/apiClient.ts` — Exports one API object per domain; routes to mock or real based on `NEXT_PUBLIC_USE_MOCK`
 - `lib/mockApi.ts` — All mock API functions using `delay()` + in-memory data
 - `mock/` — Static mock data (staff, products, customers, attendance, etc.)
 - `hooks/` — `useQuery`/`useMutation` wrappers per domain
+
+**Tests**:
+- `__tests__/unit/` — Pure logic, stores, mock data integrity
+- `__tests__/integration/` — API + flow tests with Jest
+- `__tests__/e2e/` — Playwright browser tests (runs against dev server on :3000)
 
 **Permissions**: `hooks/usePermissions.ts` + `<PermissionGate permission="x">`
 - `super_admin` / `admin` → `manage_staff`, all permissions
@@ -83,8 +93,21 @@ npm run build
 
 ### Backend
 - `apps/backend/mediflow/settings/` — `base.py`, `dev.py`, `prod.py`
-- Only live endpoint: `GET /api/v1/health/`
-- JWT auth, CORS, PostgreSQL, Celery/Redis configured but not wired to frontend yet
+- Split into domain Django apps: `accounts`, `attendance`, `billing`, `core`, `inventory`, `purchases`, `reports`
+- Each app has: `models.py`, `services.py`, `views.py`, `serializers.py`, `tests.py`, `urls.py`
+- JWT auth, CORS, PostgreSQL, Celery/Redis all active
+
+**Live API endpoints** (all prefixed `/api/v1/`):
+- `auth/` — login/JWT
+- `customers/`, `staff/`, `doctors/` — accounts
+- `inventory/`, `products/`, `batches/` — inventory
+- `purchases/`, `grns/`, `distributors/` — purchases
+- `billing/`, `invoices/`, `returns/` — billing
+- `credit-accounts/`, `ledger/` — credit/Udhari
+- `attendance/` — check-in/out
+- `reports/` — analytics
+- `outlet/`, `organizations/` — core/chain
+- `notifications/low-stock/`, `migrate/marg/`
 
 ## Established Patterns
 
@@ -132,7 +155,7 @@ toast({ variant: 'destructive', title: 'Error' });
 ## Environment Variables
 
 Copy `.env.example` to `.env`. Key vars:
-- `NEXT_PUBLIC_USE_MOCK=true` — enables mock data
+- `NEXT_PUBLIC_USE_MOCK` — `false` (live API) or `true` (mock data fallback)
 - `NEXT_PUBLIC_API_URL` — backend URL
 - `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY`, `DJANGO_SETTINGS_MODULE`
 
@@ -150,30 +173,24 @@ Copy `.env.example` to `.env`. Key vars:
 
 ## Backend Architecture Rules
 - All models must use OutletFilteredManager for outletId isolation
-- All business logic goes in apps/backend/api/services/ (NOT in views)
+- All business logic goes in the domain app's `services.py` (NOT in views)
 - All DB mutations must be wrapped in transaction.atomic()
 - Never allow batch stock to go below 0
 - Schedule H/H1/X drugs MUST block sale without Doctor+Patient details
 
 ## Django App Structure
-- apps/backend/api/models.py — All models
-- apps/backend/api/services/ — Business logic (one file per domain)
-- apps/backend/api/views/ — API views (thin, only call services)
-- apps/backend/api/serializers/ — DRF serializers
-- apps/backend/api/tests.py — All tests
+Each domain app (`accounts`, `attendance`, `billing`, `core`, `inventory`, `purchases`, `reports`) follows this layout:
+- `models.py` — domain models (all use `OutletFilteredManager`)
+- `services.py` — business logic (all mutations use `transaction.atomic()`)
+- `views.py` — thin DRF views that only call services
+- `serializers.py` — DRF serializers
+- `tests.py` — all tests for that app
 
 ## API Conventions
 - All endpoints prefixed with /api/v1/
 - JWT auth required on all endpoints except /auth/login/
 - All list endpoints must support ?outletId= filter
 - Response format: { data: [], meta: { total, page } }
-
-## Implementation Order (DO NOT SKIP STEPS)
-Phase 1 (Current): Models only
-Phase 2: Services layer
-Phase 3: API endpoints
-Phase 4: Tests
-Phase 5: Switch USE_MOCK=false
 
 ## Key Type Mappings
 - Frontend types live in packages/types/index.ts

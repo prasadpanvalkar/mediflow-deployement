@@ -226,3 +226,200 @@ class RegularMedicine(models.Model):
 
     def __str__(self):
         return f"{self.name} x{self.qty} ({self.frequency}) — {self.customer.name}"
+
+
+class LedgerGroup(models.Model):
+    NATURE_CHOICES = [
+        ('asset', 'Asset'),
+        ('liability', 'Liability'),
+        ('income', 'Income'),
+        ('expense', 'Expense'),
+    ]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    outlet = models.ForeignKey('core.Outlet', on_delete=models.CASCADE)
+    name = models.CharField(max_length=100)
+    parent = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='children'
+    )
+    nature = models.CharField(max_length=20, choices=NATURE_CHOICES)
+    is_system = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OutletFilteredManager()
+
+    class Meta:
+        unique_together = ['outlet', 'name']
+        db_table = 'accounts_ledgergroup'
+
+    def __str__(self):
+        return self.name
+
+
+class Ledger(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    outlet = models.ForeignKey('core.Outlet', on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    group = models.ForeignKey(LedgerGroup, on_delete=models.PROTECT)
+    opening_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    balance_type = models.CharField(max_length=5, default='Dr')
+    current_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    phone = models.CharField(max_length=15, blank=True)
+    gstin = models.CharField(max_length=15, blank=True)
+    address = models.TextField(blank=True)
+    linked_customer = models.ForeignKey(
+        'accounts.Customer', null=True, blank=True, on_delete=models.SET_NULL, related_name='ledgers'
+    )
+    linked_distributor = models.ForeignKey(
+        'purchases.Distributor', null=True, blank=True, on_delete=models.SET_NULL, related_name='ledgers'
+    )
+    is_system = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OutletFilteredManager()
+
+    class Meta:
+        db_table = 'accounts_ledger'
+        unique_together = ['outlet', 'name']
+
+    def __str__(self):
+        return self.name
+
+
+class Voucher(models.Model):
+    VOUCHER_TYPES = [
+        ('receipt', 'Receipt'),
+        ('payment', 'Payment'),
+        ('contra', 'Contra'),
+        ('journal', 'Journal'),
+    ]
+    PAYMENT_MODES = [
+        ('cash', 'Cash'),
+        ('bank', 'Bank'),
+        ('upi', 'UPI'),
+    ]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    outlet = models.ForeignKey('core.Outlet', on_delete=models.CASCADE)
+    voucher_type = models.CharField(max_length=20, choices=VOUCHER_TYPES)
+    voucher_no = models.CharField(max_length=50)
+    date = models.DateField()
+    narration = models.TextField(blank=True)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    payment_mode = models.CharField(max_length=20, choices=PAYMENT_MODES, default='cash')
+    created_by = models.ForeignKey('accounts.Staff', on_delete=models.PROTECT, related_name='vouchers_created')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OutletFilteredManager()
+
+    class Meta:
+        unique_together = ['outlet', 'voucher_no']
+        db_table = 'accounts_voucher'
+
+    def __str__(self):
+        return f"{self.voucher_no} - ₹{self.total_amount}"
+
+
+class VoucherLine(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    voucher = models.ForeignKey(Voucher, related_name='lines', on_delete=models.CASCADE)
+    ledger = models.ForeignKey(Ledger, on_delete=models.PROTECT)
+    debit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    credit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    description = models.TextField(blank=True)
+
+    class Meta:
+        db_table = 'accounts_voucherline'
+
+    def __str__(self):
+        return f"Dr:{self.debit} Cr:{self.credit}"
+
+
+class DebitNote(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    outlet = models.ForeignKey('core.Outlet', on_delete=models.CASCADE)
+    debit_note_no = models.CharField(max_length=50)
+    date = models.DateField()
+    distributor = models.ForeignKey('purchases.Distributor', on_delete=models.PROTECT)
+    purchase_invoice = models.ForeignKey(
+        'purchases.PurchaseInvoice', null=True, blank=True, on_delete=models.SET_NULL
+    )
+    reason = models.TextField()
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    gst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(
+        max_length=20,
+        choices=[('pending', 'Pending'), ('adjusted', 'Adjusted'), ('refunded', 'Refunded')],
+        default='pending'
+    )
+    created_by = models.ForeignKey('accounts.Staff', on_delete=models.PROTECT, related_name='debit_notes_created')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OutletFilteredManager()
+
+    class Meta:
+        unique_together = ['outlet', 'debit_note_no']
+        db_table = 'accounts_debitnote'
+
+    def __str__(self):
+        return self.debit_note_no
+
+
+class DebitNoteItem(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    debit_note = models.ForeignKey(DebitNote, related_name='items', on_delete=models.CASCADE)
+    batch = models.ForeignKey('inventory.Batch', on_delete=models.PROTECT)
+    product_name = models.CharField(max_length=255)
+    qty = models.DecimalField(max_digits=10, decimal_places=2)
+    rate = models.DecimalField(max_digits=10, decimal_places=2)
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    total = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        db_table = 'accounts_debitnoteitem'
+
+
+class CreditNote(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    outlet = models.ForeignKey('core.Outlet', on_delete=models.CASCADE)
+    credit_note_no = models.CharField(max_length=50)
+    date = models.DateField()
+    customer = models.ForeignKey(
+        'accounts.Customer', null=True, blank=True, on_delete=models.SET_NULL, related_name='credit_notes'
+    )
+    sale_invoice = models.ForeignKey(
+        'billing.SaleInvoice', null=True, blank=True, on_delete=models.SET_NULL, related_name='credit_notes'
+    )
+    reason = models.TextField()
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    gst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(
+        max_length=20,
+        choices=[('pending', 'Pending'), ('adjusted', 'Adjusted'), ('refunded', 'Refunded')],
+        default='pending'
+    )
+    created_by = models.ForeignKey('accounts.Staff', on_delete=models.PROTECT, related_name='credit_notes_created')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OutletFilteredManager()
+
+    class Meta:
+        unique_together = ['outlet', 'credit_note_no']
+        db_table = 'accounts_creditnote'
+
+    def __str__(self):
+        return self.credit_note_no
+
+
+class CreditNoteItem(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    credit_note = models.ForeignKey(CreditNote, related_name='items', on_delete=models.CASCADE)
+    batch = models.ForeignKey('inventory.Batch', on_delete=models.PROTECT)
+    product_name = models.CharField(max_length=255)
+    qty = models.DecimalField(max_digits=10, decimal_places=2)
+    rate = models.DecimalField(max_digits=10, decimal_places=2)
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    total = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        db_table = 'accounts_creditnoteitem'

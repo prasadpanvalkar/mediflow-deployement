@@ -1,5 +1,6 @@
 from django.urls import path, include
 from django.http import JsonResponse
+from django.contrib import admin
 from apps.billing.views import LowStockAlertView, MargMigrationView
 
 
@@ -8,6 +9,7 @@ def health_check(request):
 
 
 urlpatterns = [
+    path("admin/", admin.site.urls),
     path("api/v1/health/", health_check),
     path("api/v1/auth/", include("apps.accounts.auth_urls")),
     path("api/v1/customers/", include("apps.accounts.customer_urls")),
@@ -22,5 +24,6 @@ urlpatterns = [
     path("api/v1/outlet/", include("apps.core.outlet_urls")),
     path("api/v1/organizations/", include("apps.core.chain_urls")),
     path("api/v1/notifications/low-stock/", LowStockAlertView.as_view(), name='low-stock-alert'),
+    path("api/v1/", include("apps.accounts.voucher_urls")),
     path("api/v1/migrate/marg/", MargMigrationView.as_view(), name='marg-migration'),
 ]

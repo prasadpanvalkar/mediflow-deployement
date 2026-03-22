@@ -2,12 +2,14 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
     container_name: mediflow_postgres
+    restart: unless-stopped          # ← ADDED
     environment:
       POSTGRES_DB: mediflow
       POSTGRES_USER: mediflow
       POSTGRES_PASSWORD: mediflow
+        
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -21,6 +23,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: mediflow_redis
+    restart: unless-stopped          # ← ADDED
     ports:
       - "6379:6379"
     volumes:
@@ -36,11 +39,13 @@ services:
       context: ./apps/backend
       dockerfile: ../../docker/backend.Dockerfile
     container_name: mediflow_backend
+    restart: unless-stopped          # ← ADDED
     command: >
       sh -c "python manage.py migrate &&
              python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ./apps/backend:/app
+      - static_files:/app/staticfiles  # ← ADDED (so collectstatic output persists)
     ports:
       - "8000:8000"
     env_file:
@@ -58,11 +63,13 @@ services:
       context: ./apps/frontend
       dockerfile: ../../docker/frontend.Dockerfile
     container_name: mediflow_frontend
+    restart: unless-stopped          # ← ADDED
     command: npm run dev
     volumes:
       - ./apps/frontend:/app
       - /app/node_modules
       - /app/.next
+      - playwright-browsers:/ms-playwright
     ports:
       - "3000:3000"
     env_file:
@@ -76,6 +83,7 @@ services:
 
   nginx:
     image: nginx:latest
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
@@ -85,13 +93,13 @@ services:
     depends_on:
       - backend
       - frontend
-    restart: unless-stopped
 
   celery:
     build:
       context: ./apps/backend
       dockerfile: ../../docker/backend.Dockerfile
     container_name: mediflow_celery
+    restart: unless-stopped
     command: celery -A mediflow worker --loglevel=info --concurrency=2
     volumes:
       - ./apps/backend:/app
@@ -104,9 +112,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
   static_files:
+  playwright-browsers:

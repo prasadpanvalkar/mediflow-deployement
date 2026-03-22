@@ -20,7 +20,8 @@ const PRESETS = [500, 1000, 2000, 5000, 10000];
 export default function EditCreditLimitModal({ isOpen, accountId, onClose }: EditCreditLimitModalProps) {
     const { data: accounts } = useCreditAccounts();
     const mutation = useUpdateCreditLimit();
-    const account = accounts?.find((a: any) => a.id === accountId);
+    const safeAccounts = Array.isArray(accounts) ? accounts : (accounts as any)?.data ?? [];
+    const account = safeAccounts.find((a: any) => a.id === accountId);
 
     const [newLimit, setNewLimit] = useState<string>('');
     const [error, setError] = useState('');

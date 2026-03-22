@@ -55,6 +55,7 @@ export default function CreditAccountsList({
     if (searchQuery) filters.search = searchQuery;
 
     const { data: accounts, isLoading } = useCreditAccounts(filters);
+    const safeAccounts = Array.isArray(accounts) ? accounts : (accounts as any)?.data ?? [];
 
     return (
         <div className="space-y-4">
@@ -94,9 +95,9 @@ export default function CreditAccountsList({
                         <Skeleton key={i} className="h-[130px] rounded-xl" />
                     ))}
                 </div>
-            ) : accounts && accounts.length > 0 ? (
+            ) : safeAccounts.length > 0 ? (
                 <div className="space-y-3">
-                    {accounts.map((account: any) => {
+                    {safeAccounts.map((account: any) => {
                         const status = STATUS_CONFIG[account.status] || STATUS_CONFIG.active;
                         const utilization = account.creditLimit > 0
                             ? (account.totalOutstanding / account.creditLimit) * 100

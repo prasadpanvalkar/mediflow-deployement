@@ -131,7 +131,7 @@ export function PaymentModal({ isOpen, onClose, onConfirm, totals, isLoading, cu
 
     return (
         <Dialog open={isOpen} onOpenChange={(v) => !isLoading && !v && onClose()}>
-            <DialogContent className="max-w-md" onInteractOutside={e => isLoading && e.preventDefault()}>
+            <DialogContent data-testid="payment-modal" className="max-w-md" onInteractOutside={e => isLoading && e.preventDefault()}>
                 <DialogHeader>
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -162,9 +162,10 @@ export function PaymentModal({ isOpen, onClose, onConfirm, totals, isLoading, cu
                             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Amount Tendered</label>
                             <div className="relative">
                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-medium text-slate-500">₹</span>
-                                <Input 
-                                    type="number" 
-                                    className="pl-8 h-14 text-xl font-medium" 
+                                <Input
+                                    data-testid="payment-cash-input"
+                                    type="number"
+                                    className="pl-8 h-14 text-xl font-medium"
                                     value={cashTendered || ''}
                                     onChange={(e) => setCashTendered(Number(e.target.value))}
                                     autoFocus
@@ -209,8 +210,9 @@ export function PaymentModal({ isOpen, onClose, onConfirm, totals, isLoading, cu
                         
                         <div>
                             <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">Reference ID (Optional)</label>
-                            <Input 
-                                placeholder="e.g. 123456789012" 
+                            <Input
+                                data-testid="payment-upi-input"
+                                placeholder="e.g. 123456789012"
                                 value={upiRef}
                                 onChange={e => setUpiRef(e.target.value)}
                             />
@@ -221,7 +223,7 @@ export function PaymentModal({ isOpen, onClose, onConfirm, totals, isLoading, cu
                                 <h4 className="font-medium text-sm text-slate-900">Payment received</h4>
                                 <p className="text-xs text-slate-500 mt-0.5">Confirm customer has paid via app</p>
                             </div>
-                            <Switch checked={upiConfirmed} onCheckedChange={setUpiConfirmed} />
+                            <Switch data-testid="payment-upi-toggle" checked={upiConfirmed} onCheckedChange={setUpiConfirmed} />
                         </div>
                     </TabsContent>
 
@@ -402,9 +404,10 @@ export function PaymentModal({ isOpen, onClose, onConfirm, totals, isLoading, cu
                 </div>
 
                 <DialogFooter className="mt-4 sm:flex-col sm:space-x-0 gap-2">
-                    <Button 
-                        size="lg" 
-                        className="w-full h-12 text-sm font-semibold" 
+                    <Button
+                        data-testid="payment-confirm-btn"
+                        size="lg"
+                        className="w-full h-12 text-sm font-semibold"
                         disabled={isConfirmDisabled}
                         onClick={handleConfirm}
                     >

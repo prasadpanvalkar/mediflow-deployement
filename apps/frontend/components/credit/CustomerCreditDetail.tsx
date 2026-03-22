@@ -27,7 +27,9 @@ export default function CustomerCreditDetail({
     const { data: accounts } = useCreditAccounts();
     const { data: transactions, isLoading: txLoading } = useCreditTransactions(accountId);
 
-    const account = accounts?.find((a: any) => a.id === accountId);
+    const safeAccounts = Array.isArray(accounts) ? accounts : (accounts as any)?.data ?? [];
+    const account = safeAccounts.find((a: any) => a.id === accountId);
+    const safeTransactions = Array.isArray(transactions) ? transactions : (transactions as any)?.data ?? [];
     if (!account) return null;
 
     const customer = account.customer;
@@ -131,12 +133,12 @@ export default function CustomerCreditDetail({
                             <Skeleton key={i} className="h-14 rounded-lg" />
                         ))}
                     </div>
-                ) : transactions && transactions.length > 0 ? (
+                ) : safeTransactions.length > 0 ? (
                     <div className="space-y-0">
-                        {transactions.map((tx: any, idx: number) => (
+                        {safeTransactions.map((tx: any, idx: number) => (
                             <div key={tx.id} className="flex items-start gap-3 py-3 border-b last:border-b-0 relative">
                                 {/* Timeline line */}
-                                {idx < transactions.length - 1 && (
+                                {idx < safeTransactions.length - 1 && (
                                     <div className="absolute left-4 top-11 bottom-0 w-0.5 bg-slate-100" />
                                 )}
                                 {/* Icon */}

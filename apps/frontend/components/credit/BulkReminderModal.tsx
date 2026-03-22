@@ -24,7 +24,7 @@ export default function BulkReminderModal({ isOpen, onClose }: BulkReminderModal
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [sent, setSent] = useState(false);
 
-    const overdueAccounts = accounts || [];
+    const overdueAccounts = Array.isArray(accounts) ? accounts : (accounts as any)?.data ?? [];
 
     const handleOpen = () => {
         setSelected(new Set(overdueAccounts.map((a: any) => a.id)));

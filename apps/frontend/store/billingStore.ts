@@ -44,6 +44,10 @@ interface BillingState {
     getTotals: () => BillTotals;
     hasScheduleHItems: () => boolean;
     cartCount: () => number;
+
+    // Session bill counter (resets on page reload, not persisted)
+    billsToday: number;
+    incrementBillsToday: () => void;
 }
 
 const initialPayment: PaymentSplit = {
@@ -65,6 +69,7 @@ export const useBillingStore = create<BillingState>((set, get) => ({
     isCartOpen: false,
     searchQuery: '',
     lastInvoice: null,
+    billsToday: 0,
 
     setActiveStaff: (staff) => set({ activeStaff: staff, isPinVerified: true }),
     clearPin: () => set({ activeStaff: null, isPinVerified: false }),
@@ -151,11 +156,16 @@ export const useBillingStore = create<BillingState>((set, get) => ({
         let requiresDoctorDetails = false;
 
         state.cart.forEach(item => {
+            const rawTotal = item.rate * item.totalQty;
+            const gstRate = item.gstRate || 0;
+            const itemTaxable = gstRate > 0 ? rawTotal / (1 + gstRate / 100) : rawTotal;
+            const itemGst = rawTotal - itemTaxable;
+
             subtotal += (item.mrp * item.totalQty);
-            totalRateAmount += (item.rate * item.totalQty);
-            taxableAmount += item.taxableAmount;
-            cgstAmount += item.gstAmount / 2;
-            sgstAmount += item.gstAmount / 2;
+            totalRateAmount += rawTotal;
+            taxableAmount += itemTaxable;
+            cgstAmount += itemGst / 2;
+            sgstAmount += itemGst / 2;
             totalQty += item.totalQty;
 
             if (item.scheduleType === 'H' || item.scheduleType === 'H1' || item.scheduleType === 'X' || item.scheduleType === 'Narcotic') {
@@ -202,5 +212,7 @@ export const useBillingStore = create<BillingState>((set, get) => ({
         );
     },
 
-    cartCount: () => get().cart.length
+    cartCount: () => get().cart.length,
+
+    incrementBillsToday: () => set((state) => ({ billsToday: state.billsToday + 1 })),
 }));

@@ -1,39 +1,77 @@
-import { UserCog, Plus } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+'use client';
+
+import { useState } from 'react';
+import { Plus, UserCog, Trophy, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGate } from '@/components/shared/PermissionGate';
+import { StaffTable } from 'components/staff/StaffTable';
+import { StaffFormModal } from 'components/staff/StaffFormModal';
+import { StaffLeaderboard } from 'components/staff/StaffLeaderboard';
 
 export default function StaffPage() {
+    const [showForm, setShowForm] = useState(false);
+    const [editingStaff, setEditingStaff] = useState<any>(null);
+
+    const handleEdit = (staff: any) => {
+        setEditingStaff(staff);
+        setShowForm(true);
+    };
+
+    const handleClose = () => {
+        setShowForm(false);
+        setEditingStaff(null);
+    };
+
     return (
         <div className="space-y-6">
+            {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900">Staff Management</h1>
+                    <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                        <UserCog className="w-6 h-6 text-blue-600" />
+                        Staff Management
+                    </h1>
                     <p className="text-muted-foreground text-sm mt-1">
                         Manage staff, PINs, roles, and performance tracking
                     </p>
                 </div>
                 <PermissionGate permission="manage_staff">
-                    <Button>
+                    <Button onClick={() => setShowForm(true)}>
                         <Plus className="w-4 h-4 mr-2" />
                         Add Staff Member
                     </Button>
                 </PermissionGate>
             </div>
 
-            <Card className="border-dashed border-2 border-slate-200">
-                <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-                    <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
-                        <UserCog className="w-8 h-8 text-slate-400" />
-                    </div>
-                    <h3 className="text-lg font-semibold text-slate-700">
-                        Coming in next stage
-                    </h3>
-                    <p className="text-muted-foreground text-sm mt-2 max-w-sm">
-                        Staff controls coming soon
-                    </p>
-                </CardContent>
-            </Card>
+            {/* Tabs */}
+            <Tabs defaultValue="staff">
+                <TabsList>
+                    <TabsTrigger value="staff" className="flex gap-2">
+                        <UserCog className="w-4 h-4" />
+                        Staff List
+                    </TabsTrigger>
+                    <TabsTrigger value="leaderboard" className="flex gap-2">
+                        <Trophy className="w-4 h-4" />
+                        Leaderboard
+                    </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="staff" className="mt-4">
+                    <StaffTable onEdit={handleEdit} />
+                </TabsContent>
+
+                <TabsContent value="leaderboard" className="mt-4">
+                    <StaffLeaderboard />
+                </TabsContent>
+            </Tabs>
+
+            {/* Create/Edit Modal */}
+            <StaffFormModal
+                open={showForm}
+                onClose={handleClose}
+                editingStaff={editingStaff}
+            />
         </div>
     );
 }

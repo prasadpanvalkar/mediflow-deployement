@@ -10,7 +10,7 @@ export function StaffActiveBadge() {
     if (!activeStaff) return null
 
     return (
-        <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5 animate-in slide-in-from-left-2">
+        <div data-testid="staff-badge" className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5 animate-in slide-in-from-left-2">
             <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                 <span className="text-sm font-medium text-green-800 tracking-tight">

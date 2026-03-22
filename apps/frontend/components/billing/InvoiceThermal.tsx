@@ -24,12 +24,12 @@ export const InvoiceThermal = forwardRef<HTMLDivElement, InvoiceThermalProps>(({
 
             <div className="border-t border-b border-black border-dashed py-2 mb-3">
                 <div className="flex justify-between">
-                    <span>INV: {invoice.invoiceNo}</span>
-                    <span>{format(new Date(invoice.createdAt), 'dd.MM.yy')}</span>
+                    <span>INV: {invoice.invoiceNo ?? '—'}</span>
+                    <span>{invoice.createdAt ? format(new Date(invoice.createdAt), 'dd.MM.yy') : '—'}</span>
                 </div>
                 <div className="flex justify-between mt-1">
                     <span>Staff: {user?.name?.split(' ')[0] || 'Admin'}</span>
-                    <span>{format(new Date(invoice.createdAt), 'HH:mm')}</span>
+                    <span>{invoice.createdAt ? format(new Date(invoice.createdAt), 'HH:mm') : '—'}</span>
                 </div>
             </div>
 
@@ -43,9 +43,9 @@ export const InvoiceThermal = forwardRef<HTMLDivElement, InvoiceThermalProps>(({
                     </tr>
                 </thead>
                 <tbody>
-                    {invoice.items.map((item, index) => {
-                        const totalQty = item.qtyStrips + item.qtyLoose;
-                        const amt = totalQty * item.rate * (1 - item.discountPct / 100);
+                    {(invoice.items ?? []).map((item, index) => {
+                        const totalQty = (item.qtyStrips ?? 0) + (item.qtyLoose ?? 0);
+                        const amt = totalQty * (item.rate ?? 0) * (1 - (item.discountPct ?? 0) / 100);
                         return (
                             <React.Fragment key={index}>
                                 <tr>
@@ -56,7 +56,7 @@ export const InvoiceThermal = forwardRef<HTMLDivElement, InvoiceThermalProps>(({
                                 <tr>
                                     <td></td>
                                     <td className="text-center">{totalQty}</td>
-                                    <td className="text-right">{item.rate.toFixed(2)}</td>
+                                    <td className="text-right">{(item.rate ?? 0).toFixed(2)}</td>
                                     <td className="text-right">{amt.toFixed(2)}</td>
                                 </tr>
                             </React.Fragment>
@@ -68,26 +68,26 @@ export const InvoiceThermal = forwardRef<HTMLDivElement, InvoiceThermalProps>(({
             <div className="border-t border-black border-dashed mt-3 pt-2">
                 <div className="flex justify-between">
                     <span>Subtotal:</span>
-                    <span>{invoice.subtotal.toFixed(2)}</span>
+                    <span>{(invoice.subtotal ?? 0).toFixed(2)}</span>
                 </div>
-                {invoice.discountAmount > 0 && (
+                {(invoice.discountAmount ?? 0) > 0 && (
                     <div className="flex justify-between font-bold">
                         <span>Discount:</span>
-                        <span>-{invoice.discountAmount.toFixed(2)}</span>
+                        <span>-{(invoice.discountAmount ?? 0).toFixed(2)}</span>
                     </div>
                 )}
                 <div className="flex justify-between">
                     <span>Taxable:</span>
-                    <span>{invoice.taxableAmount.toFixed(2)}</span>
+                    <span>{(invoice.taxableAmount ?? 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between">
                     <span>CGST+SGST:</span>
-                    <span>{(invoice.cgst + invoice.sgst).toFixed(2)}</span>
+                    <span>{((invoice.cgst ?? 0) + (invoice.sgst ?? 0)).toFixed(2)}</span>
                 </div>
-                {invoice.roundOff !== 0 && (
+                {(invoice.roundOff ?? 0) !== 0 && (
                     <div className="flex justify-between">
                         <span>Round Off:</span>
-                        <span>{invoice.roundOff.toFixed(2)}</span>
+                        <span>{(invoice.roundOff ?? 0).toFixed(2)}</span>
                     </div>
                 )}
             </div>
@@ -95,19 +95,19 @@ export const InvoiceThermal = forwardRef<HTMLDivElement, InvoiceThermalProps>(({
             <div className="border-t border-b border-black py-2 mt-2 font-bold text-[14px]">
                 <div className="flex justify-between">
                     <span>GRAND TOTAL:</span>
-                    <span>Rs.{invoice.grandTotal.toFixed(2)}</span>
+                    <span>Rs.{(invoice.grandTotal ?? 0).toFixed(2)}</span>
                 </div>
             </div>
 
             <div className="mt-2 mb-4">
                 <div className="flex justify-between">
-                    <span>Paid ({invoice.paymentMode}):</span>
-                    <span>{invoice.amountPaid.toFixed(2)}</span>
+                    <span>Paid ({invoice.paymentMode ?? 'cash'}):</span>
+                    <span>{(invoice.amountPaid ?? 0).toFixed(2)}</span>
                 </div>
-                {invoice.amountPaid > invoice.grandTotal && (
+                {(invoice.amountPaid ?? 0) > (invoice.grandTotal ?? 0) && (
                     <div className="flex justify-between font-bold">
                         <span>Change:</span>
-                        <span>{(invoice.amountPaid - invoice.grandTotal).toFixed(2)}</span>
+                        <span>{((invoice.amountPaid ?? 0) - (invoice.grandTotal ?? 0)).toFixed(2)}</span>
                     </div>
                 )}
             </div>

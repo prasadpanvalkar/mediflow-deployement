@@ -33,7 +33,8 @@ export default function RecordCreditPaymentModal({ isOpen, accountId, onClose }:
     const mutation = useRecordCreditPayment();
     const outlet = useAuthStore((s) => s.outlet);
 
-    const account = accounts?.find((a: any) => a.id === accountId);
+    const safeAccounts = Array.isArray(accounts) ? accounts : (accounts as any)?.data ?? [];
+    const account = safeAccounts.find((a: any) => a.id === accountId);
     const customer = account?.customer;
     const outstanding = account?.totalOutstanding ?? 0;
 

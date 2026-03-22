@@ -74,6 +74,7 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
             }}
         >
             <DialogContent
+                data-testid="schedule-h-modal"
                 className="max-w-xl max-h-[90vh] overflow-y-auto"
                 onInteractOutside={(e) => {
                     if (isMandatory) e.preventDefault();
@@ -107,7 +108,7 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
                                         <FormItem>
                                             <FormLabel>Doctor Name *</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="Dr. Smith" {...field} />
+                                                <Input data-testid="sh-doctor-name" placeholder="Dr. Smith" {...field} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
@@ -120,7 +121,7 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
                                         <FormItem>
                                             <FormLabel>Registration No. *</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="MH/12345" {...field} />
+                                                <Input data-testid="sh-doctor-regno" placeholder="MH/12345" {...field} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
@@ -140,7 +141,7 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
                                         <FormItem className="col-span-2">
                                             <FormLabel>Patient Name *</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="John Doe" {...field} />
+                                                <Input data-testid="sh-patient-name" placeholder="John Doe" {...field} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
@@ -153,7 +154,7 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
                                         <FormItem>
                                             <FormLabel>Age *</FormLabel>
                                             <FormControl>
-                                                <Input type="number" min={1} max={120} {...field} />
+                                                <Input data-testid="sh-patient-age" type="number" min={1} max={120} {...field} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
@@ -168,7 +169,7 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
                                     <FormItem>
                                         <FormLabel>Patient Address *</FormLabel>
                                         <FormControl>
-                                            <Textarea rows={2} placeholder="Full address" {...field} />
+                                            <Textarea data-testid="sh-patient-address" rows={2} placeholder="Full address" {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -229,7 +230,7 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
                                     <Button type="button" variant="ghost" className="text-red-500 hover:text-red-600 hover:bg-red-50" onClick={onClose}>
                                         Cancel Bill
                                     </Button>
-                                    <Button type="submit" className="bg-primary">
+                                    <Button data-testid="sh-submit-btn" type="submit" className="bg-primary">
                                         Save &amp; Continue
                                     </Button>
                                 </>
@@ -238,7 +239,7 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
                                     <Button type="button" variant="ghost" onClick={onClose}>
                                         Skip for now
                                     </Button>
-                                    <Button type="submit" className="bg-primary">
+                                    <Button data-testid="sh-submit-btn" type="submit" className="bg-primary">
                                         Save Doctor Details
                                     </Button>
                                 </>

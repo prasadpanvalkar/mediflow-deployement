@@ -138,7 +138,7 @@ export function AddToCartPanel({ product, onAdd, onClose, maxDiscount }: AddToCa
 
     if (!selectedBatch) return null
 
-    const isLooseAllowed = product.packUnit.toLowerCase() === 'tablet' || product.packUnit.toLowerCase() === 'capsule'
+    const isLooseAllowed = product.packUnit?.toLowerCase() === 'tablet' || product.packUnit?.toLowerCase() === 'capsule'
     
     // Progress bar for discount
     const discountProgressPercentage = maxDiscount > 0 ? (discountPct / maxDiscount) * 100 : 0
@@ -287,6 +287,7 @@ export function AddToCartPanel({ product, onAdd, onClose, maxDiscount }: AddToCa
                         <span className="text-xs text-slate-500">Max: {maxDiscount}%</span>
                     </div>
                     <input
+                        data-testid="discount-0"
                         type="number"
                         min={0}
                         max={maxDiscount}
@@ -366,6 +367,7 @@ export function AddToCartPanel({ product, onAdd, onClose, maxDiscount }: AddToCa
 
             {/* Submit Button */}
             <button
+                data-testid="add-to-cart-btn"
                 onClick={handleAdd}
                 disabled={isOutOfStock}
                 className="w-full h-12 flex items-center justify-center gap-2 bg-primary text-white font-semibold rounded-xl text-base transition-all hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary disabled:active:scale-100"

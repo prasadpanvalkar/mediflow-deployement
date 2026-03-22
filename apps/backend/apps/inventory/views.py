@@ -200,7 +200,7 @@ class ProductSearchView(APIView):
         # Validate query length
         if len(query) < 2:
             logger.debug(f"Search query too short: {len(query)} chars")
-            return Response([], status=status.HTTP_200_OK)
+            return Response({'data': []}, status=status.HTTP_200_OK)
 
         # Validate outlet
         try:
@@ -303,7 +303,7 @@ class ProductSearchView(APIView):
             results.append(result)
 
         logger.info(f"Returning {len(results)} products with stock data")
-        return Response(results, status=status.HTTP_200_OK)
+        return Response({'data': results}, status=status.HTTP_200_OK)
 
 
 class InventoryListView(APIView):

@@ -12,15 +12,19 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 // Inline date helper to avoid external date-fns dependency
 const diffInDays = (dateStr: string) => Math.floor((new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
 
-export function BillingCart() {
-    const { 
-        cart, 
-        customer, 
-        getTotals, 
-        isPinVerified, 
-        updateCartItem, 
-        removeFromCart, 
-        clearCart 
+interface BillingCartProps {
+    onProceedToPayment?: () => void
+}
+
+export function BillingCart({ onProceedToPayment }: BillingCartProps = {}) {
+    const {
+        cart,
+        customer,
+        getTotals,
+        isPinVerified,
+        updateCartItem,
+        removeFromCart,
+        clearCart
     } = useBillingStore()
 
     const totals = getTotals()
@@ -56,7 +60,7 @@ export function BillingCart() {
             <div className="px-4 py-3 border-b flex justify-between items-center bg-white z-10 shrink-0">
                 <div className="flex items-center gap-2">
                     <h3 className="font-semibold text-slate-900 leading-none">Cart</h3>
-                    <span className="bg-slate-100 text-slate-600 text-xs font-semibold px-2 py-0.5 rounded-full">
+                    <span data-testid="cart-count" className="bg-slate-100 text-slate-600 text-xs font-semibold px-2 py-0.5 rounded-full">
                         {totals.itemCount} items
                     </span>
                 </div>
@@ -88,11 +92,11 @@ export function BillingCart() {
                     </div>
                 ) : (
                     <div className="pb-4">
-                        {cart.map(item => {
+                        {cart.map((item, index) => {
                             const isExpiringSoon = diffInDays(item.expiryDate) < 90
-                            
+
                             return (
-                                <div key={item.batchId} className="px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors group">
+                                <div key={item.batchId} data-testid={`cart-item-${index}`} className="px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors group">
                                     {/* Row 1 */}
                                     <div className="flex justify-between items-start gap-2">
                                         <div className="text-sm font-semibold text-slate-900 leading-tight">
@@ -101,7 +105,8 @@ export function BillingCart() {
                                                 {item.packSize} {item.packUnit}s
                                             </span>
                                         </div>
-                                        <button 
+                                        <button
+                                            data-testid={`remove-item-${index}`}
                                             onClick={() => removeFromCart(item.batchId)}
                                             className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all p-1 -mr-1"
                                         >
@@ -134,9 +139,21 @@ export function BillingCart() {
                                                 >
                                                     <Minus className="w-3 h-3" />
                                                 </button>
-                                                <input 
-                                                    readOnly 
-                                                    value={item.qtyStrips > 0 ? item.qtyStrips : item.qtyLoose} 
+                                                <input
+                                                    data-testid={`qty-strips-${index}`}
+                                                    type="number"
+                                                    min={1}
+                                                    value={item.qtyStrips > 0 ? item.qtyStrips : item.qtyLoose}
+                                                    onChange={(e) => {
+                                                        const newQty = Math.max(1, parseInt(e.target.value) || 1)
+                                                        const newStrips = item.qtyStrips > 0 ? newQty : 0
+                                                        const newLoose = item.qtyStrips > 0 ? 0 : newQty
+                                                        updateCartItem(item.batchId, {
+                                                            qtyStrips: newStrips,
+                                                            qtyLoose: newLoose,
+                                                            totalQty: newQty
+                                                        })
+                                                    }}
                                                     className="w-10 h-7 text-center text-sm font-medium border-y border-slate-200 bg-white focus:outline-none"
                                                 />
                                                 <button 
@@ -162,7 +179,7 @@ export function BillingCart() {
                                                     </span>
                                                 </div>
                                             )}
-                                            <div className="text-sm font-bold text-slate-900">
+                                            <div data-testid={`line-total-${index}`} className="text-sm font-bold text-slate-900">
                                                 {formatCurrency((item.mrp * (1 - item.discountPct / 100)) * item.totalQty)}
                                             </div>
                                         </div>
@@ -184,7 +201,7 @@ export function BillingCart() {
                 <div className="px-4 py-3 space-y-1.5 text-sm">
                     <div className="flex justify-between text-slate-500">
                         <span>Subtotal (MRP)</span>
-                        <span>{formatCurrency(totals.subtotal)}</span>
+                        <span data-testid="cart-subtotal">{formatCurrency(totals.subtotal)}</span>
                     </div>
                     {totals.discountAmount > 0 && (
                         <div className="flex justify-between text-green-600 font-medium">
@@ -198,12 +215,12 @@ export function BillingCart() {
                     </div>
                     <div className="flex justify-between text-slate-500 text-xs">
                         <span>CGST/SGST</span>
-                        <span>{formatCurrency(totals.cgstAmount + totals.sgstAmount)}</span>
+                        <span data-testid="cart-gst">{formatCurrency(totals.cgstAmount + totals.sgstAmount)}</span>
                     </div>
                     <div className="flex justify-between items-end pt-2 mt-2 border-t border-slate-200">
                         <span className="font-semibold text-slate-900">Grand Total</span>
                         <div className="text-right">
-                            <span className="font-bold text-xl text-slate-900 leading-none">{formatCurrency(totals.grandTotal)}</span>
+                            <span data-testid="cart-total" className="font-bold text-xl text-slate-900 leading-none">{formatCurrency(totals.grandTotal)}</span>
                         </div>
                     </div>
                     {totals.amountDue > 0 && totals.amountPaid > 0 && (
@@ -216,8 +233,9 @@ export function BillingCart() {
 
                 {/* Actions */}
                 <div className="px-4 pb-4 pt-2 space-y-2">
-                    <button 
-                        id="proceed-to-payment-btn"
+                    <button
+                        data-testid="save-bill-btn"
+                        onClick={onProceedToPayment}
                         disabled={cart.length === 0 || !isPinVerified}
                         className="w-full h-12 bg-primary text-white rounded-xl font-semibold text-base flex justify-between items-center px-5 transition-transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700"
                     >
@@ -252,7 +270,7 @@ export function BillingCart() {
     )
 }
 
-export function MobileCartFAB() {
+export function MobileCartFAB({ onProceedToPayment }: BillingCartProps = {}) {
     const { cartCount, isCartOpen, toggleCart } = useBillingStore()
     const count = cartCount()
 
@@ -279,7 +297,7 @@ export function MobileCartFAB() {
                 {/* Visual indicator handle */}
                 <div className="absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1.5 bg-slate-200 rounded-full z-50 pointer-events-none" />
                 <div className="h-full pt-4">
-                    <BillingCart />
+                    <BillingCart onProceedToPayment={onProceedToPayment} />
                 </div>
             </SheetContent>
         </Sheet>

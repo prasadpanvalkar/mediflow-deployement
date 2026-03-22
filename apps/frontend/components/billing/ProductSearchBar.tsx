@@ -144,6 +144,7 @@ export const ProductSearchBar = forwardRef<HTMLInputElement, ProductSearchBarPro
                 
                 <input
                     ref={internalRef}
+                    data-testid="product-search"
                     type="text"
                     disabled={disabled}
                     value={query}
@@ -204,6 +205,7 @@ export const ProductSearchBar = forwardRef<HTMLInputElement, ProductSearchBarPro
                                     return (
                                         <button
                                             key={product.id}
+                                            data-testid={`search-result-${index}`}
                                             onClick={() => handleSelect(product)}
                                             disabled={outOfStock}
                                             className={cn(

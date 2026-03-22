@@ -144,7 +144,7 @@ export function ExpensesTab() {
     }
 
     // Summary stats
-    const allExpenses = expenses ?? [];
+    const allExpenses = Array.isArray(expenses) ? expenses : [];
     const monthStart = format(startOfMonth(today), 'yyyy-MM-dd');
     const weekStart  = format(startOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd');
     const weekEnd    = format(endOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd');

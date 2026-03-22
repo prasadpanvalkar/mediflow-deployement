@@ -15,5 +15,8 @@
     "devDependencies": {
         "turbo": "latest",
         "typescript": "5.x"
+    },
+    "dependencies": {
+        "@radix-ui/react-alert-dialog": "^1.1.15"
     }
 }

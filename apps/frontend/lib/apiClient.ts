@@ -178,14 +178,23 @@ const realProductsApi = {
             name: item.name,
             composition: item.composition,
             manufacturer: item.manufacturer,
-            hsn: item.hsn,
-            scheduleType: item.schedule_type,
+            category: item.category,
+            drugType: item.drugType,
+            scheduleType: item.scheduleType,
+            hsnCode: item.hsnCode,
+            gstRate: item.gstRate,
+            packSize: item.packSize,
+            packUnit: item.packUnit,
+            packType: item.packType,
+            barcode: item.barcode,
+            isFridge: item.isFridge,
+            isDiscontinued: item.isDiscontinued,
+            imageUrl: item.imageUrl,
             mrp: item.mrp,
-            packSize: item.pack_size,
-            outletProductId: item.id,
-            totalStock: item.total_stock,
-            nearestExpiry: item.nearest_expiry,
-            isLowStock: item.is_low_stock,
+            outletProductId: item.outletProductId,
+            totalStock: item.totalStock,
+            nearestExpiry: item.nearestExpiry,
+            isLowStock: item.isLowStock,
             batches: item.batches || [],
         }));
     },
@@ -271,18 +280,14 @@ const realSalesApi = {
         const response = await fetch(`${API_URL}/sales/`, {
             method: 'POST',
             headers: getHeaders(),
-            body: JSON.stringify({
-                outlet_id: payload.outletId,
-                customer_id: payload.customerId,
-                sale_items: payload.saleItems,
-                cash_paid: payload.cashPaid || 0,
-                upi_paid: payload.upiPaid || 0,
-                card_paid: payload.cardPaid || 0,
-                credit_given: payload.creditGiven || 0,
-            }),
+            body: JSON.stringify(payload),
         });
         await assertOk(response);
-        return response.json();
+        const data = await response.json();
+        return {
+            ...data,
+            items: data.items ?? data.sale_items ?? data.saleItems ?? [],
+        };
     },
     list: async (outletId: string, params?: any): Promise<PaginatedResponse<SaleInvoice>> => {
         let url = `${API_URL}/sales/?outletId=${outletId}`;
@@ -393,11 +398,52 @@ const realCreditApi = {
         return response.json();
     },
     getAgingSummary: async (outletId: string) => {
-        const response = await fetch(`${API_URL}/credit/?outletId=${outletId}`, {
+        const response = await fetch(`${API_URL}/credit/?outletId=${outletId}&pageSize=500`, {
             headers: getHeaders(),
         });
         await assertOk(response);
-        return response.json();
+        const data = await response.json();
+        const accounts: any[] = data.data ?? [];
+
+        const today = new Date();
+        const result = {
+            current:     { count: 0, amount: 0 },
+            days30to60:  { count: 0, amount: 0 },
+            days60to90:  { count: 0, amount: 0 },
+            over90:      { count: 0, amount: 0 },
+            totalOverdue:      { count: 0, amount: 0 },
+            totalOutstanding:  { count: 0, amount: 0 },
+        };
+
+        for (const acc of accounts) {
+            const outstanding = acc.totalOutstanding ?? 0;
+            if (outstanding <= 0) continue;
+
+            let days = 0;
+            if (acc.lastTransactionDate) {
+                days = Math.floor(
+                    (today.getTime() - new Date(acc.lastTransactionDate).getTime()) /
+                    (1000 * 60 * 60 * 24)
+                );
+            }
+
+            const bucket =
+                days <= 30 ? 'current' :
+                days <= 60 ? 'days30to60' :
+                days <= 90 ? 'days60to90' :
+                'over90';
+
+            result[bucket].count++;
+            result[bucket].amount += outstanding;
+            result.totalOutstanding.count++;
+            result.totalOutstanding.amount += outstanding;
+            if (bucket !== 'current') {
+                result.totalOverdue.count++;
+                result.totalOverdue.amount += outstanding;
+            }
+        }
+
+        return result;
     },
     sendReminder: async (accountId: string, payload?: { channel?: string; message?: string }) => {
         const response = await fetch(`${API_URL}/credit/${accountId}/reminder/`, {
@@ -417,7 +463,16 @@ const realDashboardApi = {
             { headers: getHeaders() }
         );
         await assertOk(response);
-        return response.json();
+        const data = await response.json();
+        // Backend sends totalQty/totalRevenue; type expects qty/revenue
+        if (Array.isArray(data.topSellingItems)) {
+            data.topSellingItems = data.topSellingItems.map((item: any) => ({
+                ...item,
+                qty:     item.qty     ?? item.totalQty     ?? 0,
+                revenue: item.revenue ?? item.totalRevenue ?? 0,
+            }));
+        }
+        return data;
     },
     getAlerts: async (outletId: string): Promise<DashboardAlerts> => {
         const response = await fetch(
@@ -436,7 +491,9 @@ const realStaffApi = {
             headers: getHeaders(),
         });
         await assertOk(response);
-        return response.json();
+        const json = await response.json();
+        // Backend returns plain array; normalise so callers always get an array
+        return Array.isArray(json) ? json : (json?.data ?? []);
     },
     lookupByPin: async (pin: string, outletId: string) => {
         const response = await fetch(`${API_URL}/staff/lookup-by-pin/`, {
@@ -455,12 +512,17 @@ const realStaffApi = {
         await assertOk(response);
         return response.json();
     },
-    getLeaderboard: async (outletId: string) => {
-        const response = await fetch(`${API_URL}/staff/leaderboard/?outletId=${outletId}`, {
+    getLeaderboard: async (outletId: string, from?: string, to?: string) => {
+        let url = `${API_URL}/staff/leaderboard/?outletId=${outletId}`;
+        if (from) url += `&from=${from}`;
+        if (to) url += `&to=${to}`;
+        const response = await fetch(url, {
             headers: getHeaders(),
         });
         await assertOk(response);
-        return response.json();
+        const json = await response.json();
+        // Backend returns { success: true, data: [] }; normalise to plain array
+        return Array.isArray(json) ? json : (json?.data ?? []);
     },
     create: async (payload: any) => {
         const response = await fetch(`${API_URL}/staff/create/`, {
@@ -710,7 +772,7 @@ const realAttendanceApi = {
         await assertOk(response);
         return response.json();
     },
-    getMonthlySummaries: async (outletId: string, staffId: string, month: string) => {
+    getMonthlySummaries: async (outletId: string, _staffId: string, month: string) => {
         const response = await fetch(`${API_URL}/attendance/summary/?outletId=${outletId}&month=${month}`, { headers: getHeaders() });
         await assertOk(response);
         return response.json();
@@ -902,14 +964,36 @@ const realAccountsApi = {
             headers: getHeaders(),
         });
         await assertOk(response);
-        return response.json();
+        const data = await response.json();
+        const raw: any[] = data.data ?? (Array.isArray(data) ? data : []);
+        return raw.map((d: any) => ({
+            distributorId:    d.distributorId,
+            name:             d.distributorName ?? d.name ?? '',
+            gstin:            d.gstin,
+            phone:            d.phone,
+            totalBills:       d.invoiceCount ?? d.totalBills ?? 0,
+            paidBills:        d.paidBills ?? 0,
+            overdueBills:     d.overdueBills ?? 0,
+            totalOutstanding: d.totalOutstanding ?? 0,
+            overdueAmount:    d.overdueAmount ?? 0,
+            oldestDueDate:    d.oldestDueDate,
+        }));
     },
     getCustomerOutstanding: async (outletId: string) => {
         const response = await fetch(`${API_URL}/outstanding/customers/?outletId=${outletId}`, {
             headers: getHeaders(),
         });
         await assertOk(response);
-        return response.json();
+        const data = await response.json();
+        const raw: any[] = data.data ?? (Array.isArray(data) ? data : []);
+        return raw.map((c: any) => ({
+            customerId:       c.customerId,
+            name:             c.customerName ?? c.name ?? '',
+            phone:            c.phone,
+            totalBills:       c.totalBills ?? 0,
+            totalOutstanding: c.totalOutstanding ?? 0,
+            overdueAmount:    c.overdueAmount ?? 0,
+        }));
     },
     getUnpaidInvoices: async (distributorId: string, outletId?: string) => {
         let url = `${API_URL}/purchases/distributors/${distributorId}/outstanding/`;
@@ -961,7 +1045,9 @@ const realAccountsApi = {
         if (filters?.head) url += `&head=${filters.head}`;
         const response = await fetch(url, { headers: getHeaders() });
         await assertOk(response);
-        return response.json();
+        const json = await response.json();
+        // Backend returns { success: true, data: [...], meta: {...} }; normalise to array
+        return Array.isArray(json) ? json : (json?.data ?? []);
     },
     createExpense: async (payload: any) => {
         const response = await fetch(`${API_URL}/expenses/`, {

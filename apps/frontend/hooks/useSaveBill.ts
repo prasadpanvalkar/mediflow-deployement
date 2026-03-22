@@ -27,22 +27,56 @@ export function useSaveBill() {
             const totals = useBillingStore.getState().getTotals();
             const { outlet } = useAuthStore.getState();
 
+            const getPaid = (method: string) => {
+                if (payment.method === method) return payment.amount;
+                if (payment.method === 'split') {
+                    return (payment.splitBreakdown as any)?.[method] || 0;
+                }
+                return 0;
+            };
+
             const payload = {
                 outletId: outlet?.id || 'demo-outlet',
                 customerId: customer?.id,
                 doctorId: doctor?.id,
                 billedBy: activeStaff?.id || 'unknown_staff',
-                items: cart.map((item: any) => ({
-                    batchId: item.batchId,
-                    qtyStrips: item.qtyStrips,
-                    qtyLoose: item.qtyLoose,
-                    saleMode: item.saleMode,
-                    rate: item.rate,
-                    discountPct: item.discountPct,
-                    gstRate: item.gstRate,
-                })),
-                payment,
-                scheduleHData: totals.requiresDoctorDetails ? scheduleHData : undefined,
+                items: cart.map((item: any) => {
+                    const rawTotal = item.rate * item.totalQty;
+                    const gstRate = item.gstRate || 0;
+                    const taxable = gstRate > 0 ? rawTotal / (1 + gstRate / 100) : rawTotal;
+                    const gst = rawTotal - taxable;
+                    return {
+                        batchId: item.batchId,
+                        productId: item.productId,
+                        qtyStrips: item.qtyStrips,
+                        qtyLoose: item.qtyLoose,
+                        saleMode: item.saleMode,
+                        rate: item.rate,
+                        discountPct: item.discountPct,
+                        gstRate: item.gstRate,
+                        scheduleType: item.scheduleType || 'OTC',
+                        taxableAmount: Number(taxable.toFixed(2)),
+                        gstAmount: Number(gst.toFixed(2)),
+                        totalAmount: Number(rawTotal.toFixed(2)),
+                    };
+                }),
+                subtotal: Number(totals.subtotal.toFixed(2)),
+                discountAmount: Number(totals.discountAmount.toFixed(2)),
+                taxableAmount: Number(totals.taxableAmount.toFixed(2)),
+                cgstAmount: Number(totals.cgstAmount.toFixed(2)),
+                sgstAmount: Number(totals.sgstAmount.toFixed(2)),
+                igstAmount: 0,
+                cgst: Number(totals.cgstAmount.toFixed(2)),
+                sgst: Number(totals.sgstAmount.toFixed(2)),
+                igst: 0,
+                roundOff: Number(totals.roundOff.toFixed(2)),
+                grandTotal: Number(totals.grandTotal.toFixed(2)),
+                paymentMode: payment.method,
+                cashPaid: getPaid('cash'),
+                upiPaid: getPaid('upi'),
+                cardPaid: getPaid('card'),
+                creditGiven: getPaid('credit'),
+                scheduleHData: (totals.requiresDoctorDetails || totals.hasScheduleH) ? scheduleHData : undefined,
             };
 
             let invoice;
@@ -50,6 +84,14 @@ export function useSaveBill() {
             try {
                 // Try to create via API
                 invoice = await salesApi.create(payload as never);
+                // If the create response didn't include items, fetch the full invoice
+                if ((invoice as any).id && !((invoice as any).items?.length)) {
+                    try {
+                        invoice = await salesApi.getById((invoice as any).id);
+                    } catch {
+                        // fallback to create response
+                    }
+                }
             } catch (err: unknown) {
                 // Determine if it is a network error (e.g., navigator offline or generic fetch failure)
                 const isNetworkError = !navigator.onLine || (err instanceof TypeError && err.message === 'Failed to fetch');
@@ -84,6 +126,7 @@ export function useSaveBill() {
             // On Success (Online or Offline):
             useBillingStore.getState().setLastInvoice(invoice as any);
             useBillingStore.getState().clearCart();
+            useBillingStore.getState().incrementBillsToday();
 
             // Invalidate dashboard stats cache
             queryClient.invalidateQueries({
