@@ -651,6 +651,7 @@ class StaffLookupByPinView(APIView):
             'staffPin': staff.staff_pin,
             'maxDiscount': float(staff.max_discount),
             'canEditRate': staff.can_edit_rate,
+            'canViewPurchaseRates': staff.can_view_purchase_rates,
             'billsToday': bills_today,
             'totalSalesToday': float(total_sales_today),
         }
@@ -795,6 +796,7 @@ class StaffPinVerifyView(APIView):
             'staffPin': staff.staff_pin,
             'maxDiscount': float(staff.max_discount),
             'canEditRate': staff.can_edit_rate,
+            'canViewPurchaseRates': staff.can_view_purchase_rates,
             'billsToday': bills_today,
             'totalSalesToday': float(total_sales_today),
         }

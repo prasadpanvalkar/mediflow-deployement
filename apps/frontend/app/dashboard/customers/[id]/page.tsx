@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import {
     ArrowLeft, Pencil, Heart, Phone,
     Building2, Receipt,
-    ChevronDown, FileText, Package, AlertCircle,
+    ChevronDown, FileText, Package, AlertCircle, Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,10 +16,15 @@ import CustomerForm from '@/components/customers/CustomerForm';
 import { useCustomerById } from '@/hooks/useCustomers';
 import { useCustomerInvoices, useInvoiceItems } from '@/hooks/useSales';
 import { useBillingStore } from '@/store/billingStore';
+import { useAuthStore } from '@/store/authStore';
 import { formatCurrency } from '@/lib/gst';
 import { formatQty, cn } from '@/lib/utils';
 import { format, startOfMonth, subMonths } from 'date-fns';
-import { Customer, SaleInvoiceSummary } from '@/types';
+import { Customer, SaleInvoiceSummary, SaleInvoice } from '@/types';
+import { salesApi } from '@/lib/apiClient';
+import { InvoicePreviewModal } from '@/components/billing/InvoicePreviewModal';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -180,6 +185,25 @@ function InvoiceHistory({ customerId }: { customerId: string }) {
     const [period, setPeriod] = useState<PeriodFilter>('this_month');
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [page, setPage] = useState(1);
+
+    const [selectedPrintInvoice, setSelectedPrintInvoice] = useState<SaleInvoice | null>(null);
+    const [isPrintLoading, setIsPrintLoading] = useState<string | null>(null);
+
+    const handlePrintInvoiceClick = async (invoiceId: string) => {
+        try {
+            setIsPrintLoading(invoiceId);
+            const userOutletId = useAuthStore.getState().outlet?.id || '';
+            const invoice = await salesApi.getById(invoiceId, userOutletId);
+            setSelectedPrintInvoice({
+                ...invoice,
+                items: invoice.items || [],
+            });
+        } catch (error) {
+            console.error('Failed to load invoice for printing:', error);
+        } finally {
+            setIsPrintLoading(null);
+        }
+    };
 
     const allInvoices: SaleInvoiceSummary[] = data?.data ?? [];
 
@@ -398,9 +422,16 @@ function InvoiceHistory({ customerId }: { customerId: string }) {
                                                             variant="ghost"
                                                             size="sm"
                                                             className="text-slate-500 hover:text-blue-600 gap-1.5 h-8 px-2"
-                                                            onClick={() => window.open(`/api/v1/sales/${inv.id}/print/`, '_blank')}
+                                                            disabled={isPrintLoading === inv.id}
+                                                            onClick={async () => {
+                                                                await handlePrintInvoiceClick(inv.id);
+                                                            }}
                                                         >
-                                                            <FileText className="w-3.5 h-3.5" />
+                                                            {isPrintLoading === inv.id ? (
+                                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                            ) : (
+                                                                <FileText className="w-3.5 h-3.5" />
+                                                            )}
                                                             PDF
                                                         </Button>
                                                     </td>
@@ -469,6 +500,12 @@ function InvoiceHistory({ customerId }: { customerId: string }) {
                     </div>
                 )}
             </div>
+
+            <InvoicePreviewModal
+                isOpen={!!selectedPrintInvoice}
+                onClose={() => setSelectedPrintInvoice(null)}
+                invoice={selectedPrintInvoice}
+            />
         </div>
     );
 }
@@ -476,8 +513,10 @@ function InvoiceHistory({ customerId }: { customerId: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CustomerDetailPage() {
-    const { id } = useParams<{ id: string }>();
+    const billingStore = useBillingStore();
     const router = useRouter();
+
+    const { id } = useParams<{ id: string }>();
     const { data: customer, isLoading, isError } = useCustomerById(id);
     const setCustomer = useBillingStore((s) => s.setCustomer);
     const [editOpen, setEditOpen] = useState(false);

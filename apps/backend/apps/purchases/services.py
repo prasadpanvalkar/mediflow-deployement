@@ -132,6 +132,7 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
             cess_amount=Decimal(str(payload['cessAmount'])),
             freight=Decimal(str(payload.get('freight', 0))),
             round_off=Decimal(str(payload.get('roundOff', 0))),
+            ledger_adjustment=Decimal(str(payload.get('ledgerAdjustment', 0))),
             grand_total=grand_total,
             amount_paid=grand_total if purchase_type == 'cash' else Decimal('0'),
             outstanding=Decimal('0') if purchase_type == 'cash' else grand_total,

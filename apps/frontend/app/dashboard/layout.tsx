@@ -9,6 +9,7 @@ import { DashboardSkeleton } from '@/components/shared/DashboardSkeleton';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useAuthStore } from '@/store/authStore';
+import { authApi } from '@/lib/apiClient';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { cn } from '@/lib/utils';
 
@@ -23,6 +24,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         if (_hasHydrated && !isAuthenticated) {
             console.log("Redirecting to login because hydrated but not authenticated");
             router.push('/login');
+        } else if (_hasHydrated && isAuthenticated) {
+            // Background sync session to ensure permissions are up to date
+            authApi.me().then(data => {
+                if (data?.user) {
+                    useAuthStore.getState().setUser(data.user);
+                }
+            }).catch(console.error);
         }
     }, [_hasHydrated, isAuthenticated, router]);
 

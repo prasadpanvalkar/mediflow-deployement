@@ -13,7 +13,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 export function ExpiryTable({ onAdjustClick }: any) {
     const [daysFilter, setDaysFilter] = useState<number>(90);
     const { data: expiringData, isLoading } = useExpiryReport(daysFilter);
-    const data = expiringData || [];
+    const raw = expiringData as any;
+    const data: any[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
 
     const totalValue = data.reduce((acc: number, item: any) => acc + (item.batch.qtyStrips * item.batch.purchaseRate), 0);
 

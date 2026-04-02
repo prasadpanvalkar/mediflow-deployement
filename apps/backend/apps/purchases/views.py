@@ -517,6 +517,7 @@ class PurchaseCreateView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
 
+            logger.info(f"Incoming Purchase Payload: {payload}")
             logger.info(f"Creating purchase for outlet {outlet.name}")
 
             # Call atomic_purchase_save service (wraps entire transaction)
@@ -576,6 +577,7 @@ class PurchaseCreateView(APIView):
             'cessAmount': float(purchase_invoice.cess_amount),
             'freight': float(purchase_invoice.freight),
             'roundOff': float(purchase_invoice.round_off),
+            'ledgerAdjustment': float(purchase_invoice.ledger_adjustment),
             'grandTotal': float(purchase_invoice.grand_total),
             'amountPaid': float(purchase_invoice.amount_paid),
             'outstanding': float(purchase_invoice.outstanding),
@@ -794,6 +796,7 @@ class PurchaseListView(APIView):
             'cessAmount': float(purchase_invoice.cess_amount),
             'freight': float(purchase_invoice.freight),
             'roundOff': float(purchase_invoice.round_off),
+            'ledgerAdjustment': float(purchase_invoice.ledger_adjustment),
             'grandTotal': float(purchase_invoice.grand_total),
             'amountPaid': float(purchase_invoice.amount_paid),
             'outstanding': float(purchase_invoice.outstanding),
@@ -974,7 +977,7 @@ class PurchaseDetailView(APIView):
             
         try:
             # Prefetch distributor for full response shape
-            invoice = PurchaseInvoice.objects.select_related('distributor', 'created_by').prefetch_related('items').get(id=purchase_id, outlet=outlet)
+            invoice = PurchaseInvoice.objects.select_related('distributor', 'created_by').prefetch_related('items', 'items__master_product').get(id=purchase_id, outlet=outlet)
         except PurchaseInvoice.DoesNotExist:
             return Response(
                 {'detail': f'Purchase invoice {purchase_id} not found'},
@@ -1022,6 +1025,10 @@ class PurchaseDetailView(APIView):
                     'id': str(item.id),
                     'purchaseId': str(item.invoice_id),
                     'masterProductId': str(item.master_product_id) if item.master_product_id else None,
+                    'product': {
+                        'id': str(item.master_product.id),
+                        'name': item.master_product.name,
+                    } if item.master_product else None,
                     'customProductName': item.custom_product_name,
                     'isCustomProduct': item.is_custom_product,
                     'hsnCode': item.hsn_code,

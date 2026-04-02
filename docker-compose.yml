@@ -2,7 +2,7 @@
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:15-alpine
     container_name: mediflow_postgres
     restart: unless-stopped          # ← ADDED
     environment:

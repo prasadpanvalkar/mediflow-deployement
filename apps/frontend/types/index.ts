@@ -148,6 +148,7 @@ export interface StaffPinVerifyResponse {
     staffPin?: string;
     maxDiscount: number;
     canEditRate: boolean;
+    canViewPurchaseRates?: boolean;
     billsToday: number;
     totalSalesToday: number;
 }
@@ -664,6 +665,8 @@ export interface CreatePurchasePayload {
     gstAmount: number;
     cessAmount: number;
     roundOff: number;
+    ledgerAdjustment: number;
+    ledgerNote?: string;
     grandTotal: number;
 
     items: CreatePurchaseItemPayload[];

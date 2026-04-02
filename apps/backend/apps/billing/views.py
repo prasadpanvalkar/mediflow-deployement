@@ -397,7 +397,11 @@ class SaleCreateView(APIView):
                 max_gst_rate = Decimal('0')
 
                 for si in sale_items:
-                    raw_total = si.rate * si.qty_strips
+                    # Account for loose tablets by adding fractional strip equivalents
+                    pack_size = Decimal(str(si.pack_size)) if si.pack_size else Decimal('1')
+                    total_fractional_strips = Decimal(str(si.qty_strips)) + (Decimal(str(si.qty_loose)) / pack_size)
+                    raw_total = si.rate * total_fractional_strips
+                    
                     # Apply extra discount proportionally before GST extraction
                     discounted_total = (raw_total * discount_factor).quantize(Decimal('0.01'))
                     gst_rate = si.gst_rate
@@ -477,6 +481,12 @@ class SaleCreateView(APIView):
                     )
 
                     logger.info(f"Created CreditTransaction for customer {customer.name}: ₹{credit_given_val}")
+
+                # Step 7b: Update customer's total_purchases
+                if customer:
+                    customer.total_purchases += sale_invoice.grand_total
+                    customer.save(update_fields=['total_purchases'])
+                    logger.debug(f"Updated total_purchases for {customer.name}: +{sale_invoice.grand_total}")
 
                 # Post journal entry to general ledger (auto journal posting)
                 try:

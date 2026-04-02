@@ -73,23 +73,11 @@ export function AddNewProductDrawer({ open, onOpenChange, initialName, onSuccess
     }, [open, initialName]);
 
     const set = (field: keyof FormState, value: string) => {
-        setForm((prev) => {
-            const next = { ...prev, [field]: value };
-            // Auto-suggest saleRate = MRP × 0.95 when MRP is entered (only if saleRate not manually set)
-            if (field === 'mrp') {
-                const mrp = parseFloat(value);
-                if (mrp > 0 && (!prev.saleRate || prev.saleRate === autoSaleRate(parseFloat(prev.mrp)))) {
-                    next.saleRate = autoSaleRate(mrp);
-                }
-            }
-            return next;
-        });
+        setForm((prev) => ({ ...prev, [field]: value }));
         if (errors[field as keyof FieldErrors]) {
             setErrors((prev) => ({ ...prev, [field]: undefined }));
         }
     };
-
-    const autoSaleRate = (mrp: number) => (mrp > 0 ? (mrp * 0.95).toFixed(2) : '');
 
     const validate = (): boolean => {
         const errs: FieldErrors = {};
@@ -321,12 +309,11 @@ export function AddNewProductDrawer({ open, onOpenChange, initialName, onSuccess
                                 className={fieldCls(errors.saleRate)}
                                 value={form.saleRate}
                                 onChange={(e) => set('saleRate', e.target.value)}
-                                placeholder="Auto-filled as MRP × 0.95"
+                                placeholder="0.00"
                             />
-                            {errors.saleRate
-                                ? <p className="text-[11px] text-red-500">{errors.saleRate}</p>
-                                : <p className="text-[11px] text-slate-400">Auto-suggested as MRP × 0.95</p>
-                            }
+                            {errors.saleRate && (
+                                <p className="text-[11px] text-red-500">{errors.saleRate}</p>
+                            )}
                         </div>
                     </div>
                 </div>

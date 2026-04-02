@@ -20,23 +20,27 @@ interface ItemRow {
     saleItemId?: string;
     batchId: string;
     productName: string;
-    qty: string;
+    qtyStrips: string;
+    qtyLoose: string;
+    packSize: number;
     rate: string;
     gstRate: string;
     total: number;
-    maxQty?: number;
+    maxTotalUnits?: number;
 }
 
 function newItem(): ItemRow {
-    return { id: Math.random().toString(36).slice(2), batchId: '', productName: '', qty: '', rate: '', gstRate: '12', total: 0 };
+    return { id: Math.random().toString(36).slice(2), batchId: '', productName: '', qtyStrips: '0', qtyLoose: '0', packSize: 1, rate: '', gstRate: '12', total: 0 };
 }
 
-function calcTotal(qty: string, rate: string, gstRate: string) {
-    const q = parseFloat(qty) || 0;
+function calcTotal(qtyStrips: string, qtyLoose: string, rate: string, packSize: number) {
+    const qs = parseFloat(qtyStrips) || 0;
+    const ql = parseFloat(qtyLoose) || 0;
     const r = parseFloat(rate) || 0;
-    const g = parseFloat(gstRate) || 0;
-    const base = q * r;
-    return base + (base * g) / 100;
+    const ps = packSize || 1;
+    // Rate is inclusive of GST in Sales
+    const totalFractionalStrips = qs + (ql / ps);
+    return totalFractionalStrips * r;
 }
 
 export default function NewCreditNotePage() {
@@ -107,11 +111,13 @@ export default function NewCreditNotePage() {
                 saleItemId: item.id,
                 batchId: item.batchId || item.batch_id || item.batch?.id || '', 
                 productName: item.productName,
-                qty: String(item.totalQty || item.qtyStrips || item.qty || 0), // Better quantity mapping
+                qtyStrips: String(item.qtyStrips || 0),
+                qtyLoose: String(item.qtyLoose || 0),
+                packSize: item.packSize || 1,
                 rate: String(item.rate),
                 gstRate: String(item.gstRate),
-                maxQty: item.totalQty || item.qtyStrips || item.qty || 0,
-                total: calcTotal(String(item.totalQty || item.qtyStrips || item.qty || 0), String(item.rate), String(item.gstRate)),
+                maxTotalUnits: (item.qtyStrips || 0) * (item.packSize || 1) + (item.qtyLoose || 0),
+                total: calcTotal(String(item.qtyStrips || 0), String(item.qtyLoose || 0), String(item.rate), item.packSize || 1),
             })));
         }
     }
@@ -121,31 +127,52 @@ export default function NewCreditNotePage() {
             prev.map((item) => {
                 if (item.id !== id) return item;
                 const updated = { ...item, [field]: value };
-                // Enforce max qty from original invoice
-                if (field === 'qty' && item.maxQty !== undefined) {
-                    const entered = parseFloat(value) || 0;
-                    if (entered > item.maxQty) updated.qty = String(item.maxQty);
+                
+                // Enforce max total units limit
+                if (item.maxTotalUnits !== undefined && (field === 'qtyStrips' || field === 'qtyLoose')) {
+                    const enteredStrips = parseFloat(field === 'qtyStrips' ? value : updated.qtyStrips) || 0;
+                    const enteredLoose = parseFloat(field === 'qtyLoose' ? value : updated.qtyLoose) || 0;
+                    const totalUnitsEntered = enteredStrips * updated.packSize + enteredLoose;
+                    
+                    if (totalUnitsEntered > item.maxTotalUnits) {
+                        toast({ variant: 'destructive', title: 'Exceeds original invoice quantity!' });
+                        return item; // Revert strictly
+                    }
                 }
+                
                 updated.total = calcTotal(
-                    updated.qty,
+                    updated.qtyStrips,
+                    updated.qtyLoose,
                     field === 'rate' ? value : updated.rate,
-                    field === 'gstRate' ? value : updated.gstRate
+                    updated.packSize
                 );
                 return updated;
             })
         );
     }
 
-    const subtotal = items.reduce((s, i) => {
-        const q = parseFloat(i.qty) || 0;
+    const totalAmount = items.reduce((s, i) => {
+        const qs = parseFloat(i.qtyStrips) || 0;
+        const ql = parseFloat(i.qtyLoose) || 0;
         const r = parseFloat(i.rate) || 0;
-        return s + q * r;
+        const ps = i.packSize || 1;
+        const totalFractionalStrips = qs + (ql / ps);
+        return s + (totalFractionalStrips * r);
     }, 0);
+
     const gstAmount = items.reduce((s, i) => {
-        const base = (parseFloat(i.qty) || 0) * (parseFloat(i.rate) || 0);
-        return s + base * ((parseFloat(i.gstRate) || 0) / 100);
+        const qs = parseFloat(i.qtyStrips) || 0;
+        const ql = parseFloat(i.qtyLoose) || 0;
+        const r = parseFloat(i.rate) || 0;
+        const g = parseFloat(i.gstRate) || 0;
+        const ps = i.packSize || 1;
+        const totalFractionalStrips = qs + (ql / ps);
+        const totalIncGst = totalFractionalStrips * r;
+        const base = g > 0 ? (totalIncGst * 100) / (100 + g) : totalIncGst;
+        return s + (totalIncGst - base);
     }, 0);
-    const totalAmount = subtotal + gstAmount;
+
+    const subtotal = totalAmount - gstAmount;
 
     async function handleSave() {
         if (!outletId) return;
@@ -161,9 +188,9 @@ export default function NewCreditNotePage() {
             return;
         }
         
-        const validItems = items.filter((i) => i.productName && i.qty && i.rate);
+        const validItems = items.filter((i) => i.productName && (parseFloat(i.qtyStrips) > 0 || parseFloat(i.qtyLoose) > 0) && i.rate);
         if (validItems.length === 0) {
-            toast({ variant: 'destructive', title: 'Add at least one item' });
+            toast({ variant: 'destructive', title: 'Add at least one item with quantity' });
             return;
         }
 
@@ -176,12 +203,15 @@ export default function NewCreditNotePage() {
                 returnDate: date,          
                 refundMode: refundMode,    
                 reason: reason,
-                items: validItems.map((i) => ({
-                    saleItemId: i.saleItemId, 
-                    batchId: i.batchId,       
-                    qtyReturned: parseFloat(i.qty),
-                    returnRate: parseFloat(i.rate),
-                })),
+                items: validItems.map((i) => {
+                    const totalUnits = (parseFloat(i.qtyStrips) || 0) * (i.packSize || 1) + (parseFloat(i.qtyLoose) || 0);
+                    return {
+                        saleItemId: i.saleItemId, 
+                        batchId: i.batchId,       
+                        qtyReturned: totalUnits, // Sends total units
+                        returnRate: parseFloat(i.rate),
+                    };
+                }),
             };
 
             // MAGIC HAPPENS HERE: We use your app's built-in API tool!
@@ -282,7 +312,8 @@ export default function NewCreditNotePage() {
                         <thead className="bg-muted/50">
                             <tr>
                                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Product Name</th>
-                                <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Qty</th>
+                                <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Strips</th>
+                                <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Loose</th>
                                 <th className="px-3 py-2 text-right font-medium text-muted-foreground w-24">Rate ₹</th>
                                 <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">GST %</th>
                                 <th className="px-3 py-2 text-right font-medium text-muted-foreground w-28">Total ₹</th>
@@ -303,9 +334,18 @@ export default function NewCreditNotePage() {
                                     <td className="px-2 py-1">
                                         <Input
                                             type="number" min="0" step="1"
-                                            placeholder={item.maxQty ? `max ${item.maxQty}` : '0'}
-                                            value={item.qty}
-                                            onChange={(e) => updateItem(item.id, 'qty', e.target.value)}
+                                            placeholder="Strips"
+                                            value={item.qtyStrips}
+                                            onChange={(e) => updateItem(item.id, 'qtyStrips', e.target.value)}
+                                            className="text-right border-0 shadow-none focus-visible:ring-0"
+                                        />
+                                    </td>
+                                    <td className="px-2 py-1">
+                                        <Input
+                                            type="number" min="0" step="1"
+                                            placeholder="Loose"
+                                            value={item.qtyLoose}
+                                            onChange={(e) => updateItem(item.id, 'qtyLoose', e.target.value)}
                                             className="text-right border-0 shadow-none focus-visible:ring-0"
                                         />
                                     </td>

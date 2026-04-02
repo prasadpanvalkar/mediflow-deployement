@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { staffApi } from '@/lib/apiClient';
 import { useOutletId } from '@/hooks/useOutletId';
+import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
 
 export function useStaffList() {
@@ -34,8 +35,15 @@ export function useUpdateStaff() {
     return useMutation({
         mutationFn: ({ id, data }: { id: string; data: any }) =>
             staffApi.update(id, data),
-        onSuccess: () => {
+        onSuccess: (response, variables) => {
             queryClient.invalidateQueries({ queryKey: ['staff'] });
+            
+            // Sync local auth store if the logged-in user edited themselves
+            const authStore = useAuthStore.getState();
+            if (authStore.user?.id === variables.id && response?.data) {
+                authStore.setUser({ ...authStore.user, ...response.data });
+            }
+
             toast.success('Staff member updated successfully');
         },
         onError: (err: any) => {

@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PurchaseSummaryCards } from './PurchaseSummaryCards';
+import { PurchaseDetailModal } from './PurchaseDetailModal';
 import { usePurchasesList } from '@/hooks/usePurchases';
 import { PurchaseInvoiceFull } from '@/types';
 import { cn } from '@/lib/utils';
@@ -57,6 +58,7 @@ export function PurchasesList() {
     const [period, setPeriod]           = useState<PeriodFilter>('this_month');
     const [expandedId, setExpandedId]   = useState<string | null>(null);
     const [page, setPage]               = useState(1);
+    const [selectedInvoice, setSelectedInvoice] = useState<PurchaseInvoiceFull | null>(null);
 
     const allInvoices: PurchaseInvoiceFull[] = data?.data ?? [];
 
@@ -275,7 +277,7 @@ export function PurchasesList() {
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                                                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1">
+                                                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1" onClick={() => setSelectedInvoice(inv)}>
                                                     <FileText className="h-3.5 w-3.5" />
                                                     View
                                                 </Button>
@@ -383,6 +385,12 @@ export function PurchasesList() {
                     </div>
                 </div>
             )}
+
+            <PurchaseDetailModal 
+                open={!!selectedInvoice} 
+                onOpenChange={(open) => !open && setSelectedInvoice(null)} 
+                invoice={selectedInvoice} 
+            />
         </div>
     );
 }

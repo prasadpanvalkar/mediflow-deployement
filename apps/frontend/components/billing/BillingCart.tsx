@@ -25,6 +25,7 @@ export function BillingCart({ onProceedToPayment }: BillingCartProps = {}) {
         setCustomerLedger,
         getTotals,
         isPinVerified,
+        activeStaff,
         updateCartItem,
         removeFromCart,
         clearCart,
@@ -34,7 +35,11 @@ export function BillingCart({ onProceedToPayment }: BillingCartProps = {}) {
     } = useBillingStore()
 
     const { user } = useAuthStore()
-    const canViewRates = user?.canViewPurchaseRates ?? false
+    
+    // Honor Kiosk (PIN) user if a bill is currently underway by a specific pin, else fall back to main session
+    const canViewRates = isPinVerified && activeStaff 
+        ? (activeStaff.canViewPurchaseRates ?? false)
+        : (user?.canViewPurchaseRates ?? false)
 
     const totals = getTotals()
     const totalCost = canViewRates
@@ -141,11 +146,20 @@ export function BillingCart({ onProceedToPayment }: BillingCartProps = {}) {
                                                 Exp: {new Date(item.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
                                             </span>
                                         </div>
-                                        {SCHEDULE_MARKERS[item.scheduleType] && (
-                                            <span className={cn("text-[10px] font-semibold px-1 rounded border", ['H1', 'X', 'C', 'Narcotic'].includes(item.scheduleType) ? "bg-red-50 text-red-600 border-red-200" : "bg-amber-50 text-amber-600 border-amber-200")}>
-                                                {SCHEDULE_MARKERS[item.scheduleType]}
-                                            </span>
-                                        )}
+                                        <div className="flex items-center gap-1.5">
+                                            {canViewRates && (
+                                                <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded px-1.5 py-0.5 text-[10px] leading-none shrink-0" title={`Per Unit Cost: ${formatCurrency(item.purchaseRate || 0)}\nTotal Row Margin: ${formatCurrency(((item.mrp * (1 - item.discountPct / 100)) * item.totalQty) - ((item.purchaseRate || 0) * item.totalQty))}`}>
+                                                    <span className="text-emerald-700 font-semibold whitespace-nowrap">PR: {formatCurrency(item.purchaseRate || 0)}</span>
+                                                    <span className="w-[1px] h-2 bg-emerald-200/60" />
+                                                    <span className="text-emerald-600 whitespace-nowrap font-medium">Mrg: {formatCurrency(((item.mrp * (1 - item.discountPct / 100)) * item.totalQty) - ((item.purchaseRate || 0) * item.totalQty))}</span>
+                                                </div>
+                                            )}
+                                            {SCHEDULE_MARKERS[item.scheduleType] && (
+                                                <span className={cn("text-[10px] font-semibold px-1 rounded border", ['H1', 'X', 'C', 'Narcotic'].includes(item.scheduleType) ? "bg-red-50 text-red-600 border-red-200" : "bg-amber-50 text-amber-600 border-amber-200")}>
+                                                    {SCHEDULE_MARKERS[item.scheduleType]}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {/* Row 3 */}

@@ -95,15 +95,16 @@ class PurchaseInvoice(models.Model):
     cess_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0,
                                       help_text='Cess on applicable items')
 
-    # Freight and rounding
     freight = models.DecimalField(max_digits=12, decimal_places=2, default=0,
                                   help_text='Transport/freight charges')
     round_off = models.DecimalField(max_digits=12, decimal_places=2, default=0,
                                     help_text='Penny rounding (±)')
+    ledger_adjustment = models.DecimalField(max_digits=12, decimal_places=2, default=0,
+                                            help_text='Adjustment amounts (e.g. from Debit Notes)')
 
     # Grand total
     grand_total = models.DecimalField(max_digits=12, decimal_places=2,
-                                      help_text='taxable + gst + cess + freight + roundOff')
+                                      help_text='taxable + gst + cess + freight + roundOff - ledgerAdjustment')
 
     # Payment tracking (for bill-by-bill allocation)
     amount_paid = models.DecimalField(max_digits=12, decimal_places=2, default=0,

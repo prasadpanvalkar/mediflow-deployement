@@ -17,10 +17,11 @@ export function usePurchasesList(filters?: any) {
 export const usePurchaseList = usePurchasesList;
 
 export function usePurchaseById(id: string) {
+    const outletId = useAuthStore((s) => s.user?.outletId);
     return useQuery({
-        queryKey: ['purchases', id],
-        queryFn: () => purchasesApi.getById(id),
-        enabled: !!id,
+        queryKey: ['purchases', id, outletId],
+        queryFn: () => purchasesApi.getById(id, outletId!),
+        enabled: !!id && !!outletId,
     });
 }
 

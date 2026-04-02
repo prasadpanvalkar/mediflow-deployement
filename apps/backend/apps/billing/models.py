@@ -86,7 +86,12 @@ class SaleInvoice(models.Model):
     def has_return(self):
         """True when every item on this invoice has been fully returned."""
         items = list(self.items.all())
-        return bool(items) and all(item.qty_returned >= item.qty_strips for item in items)
+        # qty_returned is tracked in loose units (tablets/capsules), so compare against
+        # total original units = (qty_strips * pack_size) + qty_loose
+        return bool(items) and all(
+            item.qty_returned >= (item.qty_strips * (item.pack_size or 1)) + item.qty_loose
+            for item in items
+        )
 
     def clean(self):
         """Validate invoice amounts and payment splits."""
@@ -133,7 +138,7 @@ class SaleItem(models.Model):
     # Quantity (supports negative for returns)
     qty_strips = models.IntegerField(help_text='Strips/packs (can be negative for returns)')
     qty_loose = models.IntegerField(default=0, help_text='Loose units (can be negative for returns)')
-    qty_returned = models.PositiveIntegerField(default=0, help_text='Total strips returned so far across all return transactions')
+    qty_returned = models.PositiveIntegerField(default=0, help_text='Total units (tablets/capsules) returned so far across all return transactions')
     sale_mode = models.CharField(max_length=20, choices=SALE_MODE_CHOICES, default='strip')
 
     # Discount and tax

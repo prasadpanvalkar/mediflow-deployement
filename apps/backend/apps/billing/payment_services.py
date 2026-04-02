@@ -308,7 +308,8 @@ def create_sales_return(payload: Dict[str, Any], outlet_id: str, created_by_id: 
         except Batch.DoesNotExist:
             raise ReturnServiceError(f"Batch {batch_id} not found")
 
-        item_total = return_rate * qty_returned
+        item_total = return_rate * (Decimal(str(qty_returned)) / Decimal(str(pack_size)))
+        item_total = item_total.quantize(Decimal('0.01'))
         total_amount += item_total
 
         items_to_create.append({

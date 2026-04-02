@@ -608,8 +608,9 @@ const realPurchasesApi = {
         await assertOk(response);
         return response.json();
     },
-    getById: async (id: string): Promise<PurchaseInvoiceFull> => {
-        const response = await fetch(`${API_URL}/purchases/${id}/`, { headers: getHeaders() });
+    getById: async (id: string, outletId?: string): Promise<PurchaseInvoiceFull> => {
+        const query = outletId ? `?outletId=${outletId}` : '';
+        const response = await fetch(`${API_URL}/purchases/${id}/${query}`, { headers: getHeaders() });
         await assertOk(response);
         return response.json();
     },
@@ -635,6 +636,8 @@ const realPurchasesApi = {
                 cessAmount: payload.cessAmount,
                 freight: payload.freight,
                 roundOff: payload.roundOff,
+                ledgerAdjustment: payload.ledgerAdjustment,
+                ledgerNote: payload.ledgerNote,
                 grandTotal: payload.grandTotal,
             }),
         });

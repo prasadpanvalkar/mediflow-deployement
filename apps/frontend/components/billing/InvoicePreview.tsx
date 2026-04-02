@@ -4,6 +4,7 @@ import React, { forwardRef } from 'react';
 import { format } from 'date-fns';
 import { SaleInvoice } from '@/types';
 import { useAuthStore } from '@/store/authStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import { formatQty } from '@/lib/utils';
 import { SCHEDULE_MARKERS } from '@/constants/scheduleTypes';
 
@@ -53,6 +54,17 @@ function abbrevMfg(manufacturer?: string) {
 
 export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(({ invoice }, ref) => {
     const { outlet } = useAuthStore();
+    const settings = useSettingsStore();
+
+    // Settings store (user-saved) takes priority over login-time outlet data
+    const outletName = settings.outletName || outlet?.name || 'PHARMACY';
+    const outletAddress = settings.outletAddress || outlet?.address || '';
+    const outletCity = settings.outletCity || outlet?.city || '';
+    const outletPhone = settings.outletPhone || outlet?.phone || '';
+    const outletGstin = settings.outletGstin || outlet?.gstin || '';
+    const outletDrugLicenseNo = settings.outletDrugLicenseNo || outlet?.drugLicenseNo || '';
+    const outletLogoUrl = settings.outletLogoUrl || outlet?.logoUrl;
+    const invoiceFooter = settings.invoiceFooter || outlet?.invoiceFooter || 'Wish You Speedy Recovery';
 
     const customer = (invoice as any).customer;
     const customerName = customer?.name || 'Cash Customer';
@@ -76,19 +88,19 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(({
         >
             {/* ── SECTION 1: OUTLET HEADER ── */}
             <div className="text-center mb-2">
-                {outlet?.logoUrl && (
+                {outletLogoUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={outlet.logoUrl} alt="Logo" className="h-12 object-contain mx-auto mb-1" />
+                    <img src={outletLogoUrl} alt="Logo" className="h-12 object-contain mx-auto mb-1" />
                 )}
                 <h1 className="text-base font-bold uppercase tracking-wide leading-tight">
-                    {outlet?.name || 'PHARMACY'}
+                    {outletName}
                 </h1>
                 <p className="text-[10px] text-slate-600 mt-0.5">
-                    {outlet?.address || ''}{outlet?.city ? `, ${outlet.city}` : ''}
-                    {outlet?.phone ? `   Phone: ${outlet.phone}` : ''}
+                    {outletAddress}{outletCity ? `, ${outletCity}` : ''}
+                    {outletPhone ? `   Phone: ${outletPhone}` : ''}
                 </p>
-                {outlet?.gstin && (
-                    <p className="text-[10px] text-slate-500">GSTIN: {outlet.gstin}</p>
+                {outletGstin && (
+                    <p className="text-[10px] text-slate-500">GSTIN: {outletGstin}</p>
                 )}
             </div>
 
@@ -226,7 +238,7 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(({
                 <div className="grid grid-cols-2">
                     {/* Left: D.L.No + GST */}
                     <div className="border-r border-slate-300 px-2 py-1.5 text-[10px]">
-                        <p><span className="font-semibold">D.L.No.:-</span> {outlet?.drugLicenseNo || '—'}</p>
+                        <p><span className="font-semibold">D.L.No.:-</span> {outletDrugLicenseNo || '—'}</p>
                         <p className="mt-0.5">
                             <span className="font-semibold">TIME :</span>{' '}
                             {format(new Date(invoiceDate), 'HH:mm')}
@@ -242,9 +254,9 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(({
 
             {/* GST No + footer message */}
             <div className="flex items-center justify-between text-[9px] text-slate-500 mt-1">
-                {outlet?.gstin && <p><span className="font-semibold">GST No.:-</span> {outlet.gstin}</p>}
+                {outletGstin && <p><span className="font-semibold">GST No.:-</span> {outletGstin}</p>}
                 <p className="text-center flex-1 italic">
-                    {outlet?.invoiceFooter || 'Wish You Speedy Recovery'}
+                    {invoiceFooter}
                 </p>
             </div>
         </div>

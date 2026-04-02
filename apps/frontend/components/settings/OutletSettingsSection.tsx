@@ -30,7 +30,7 @@ interface OutletSettingsSectionProps {
 
 export function OutletSettingsSection({ onDirty, onSaved, discardKey }: OutletSettingsSectionProps) {
     const store = useSettingsStore();
-    const { outlet } = useAuthStore();
+    const { outlet, setOutlet } = useAuthStore();
     const { toast } = useToast();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [logoPreview, setLogoPreview] = useState<string | null>(store.outletLogoUrl);
@@ -96,6 +96,22 @@ export function OutletSettingsSection({ onDirty, onSaved, discardKey }: OutletSe
 
     function onSubmit(data: OutletSettingsFormValues) {
         store.updateOutletSettings({ ...data, outletLogoUrl: logoPreview });
+        // Also update authStore.outlet so invoice preview shows the new details immediately
+        if (outlet) {
+            setOutlet({
+                ...outlet,
+                name: data.outletName,
+                address: data.outletAddress,
+                city: data.outletCity,
+                state: data.outletState,
+                pincode: data.outletPincode,
+                phone: data.outletPhone,
+                gstin: data.outletGstin,
+                drugLicenseNo: data.outletDrugLicenseNo,
+                invoiceFooter: data.invoiceFooter,
+                logoUrl: logoPreview ?? outlet.logoUrl,
+            });
+        }
         toast({ title: 'Outlet settings saved' });
         onSaved();
         reset(data);

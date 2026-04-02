@@ -8,27 +8,27 @@ import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useOutletId } from '@/hooks/useOutletId';
-import { voucherApi } from '@/lib/apiClient';
-import { CreditNote } from '@/types';
-import { cn } from '@/lib/utils';
+import { salesApi } from '@/lib/apiClient';
+import { SaleReturnDetailModal } from '@/components/accounts/SaleReturnDetailModal';
 
-const STATUS_COLORS = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    adjusted: 'bg-blue-100 text-blue-800',
-    refunded: 'bg-green-100 text-green-800',
+const REFUND_MODE_LABELS: Record<string, string> = {
+    cash: 'Cash',
+    upi: 'UPI',
+    credit_note: 'Credit Note',
 };
 
 export default function SaleReturnsPage() {
     const outletId = useOutletId();
     const { toast } = useToast();
-    const [notes, setNotes] = useState<CreditNote[]>([]);
+    const [returns, setReturns] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [selectedReturnId, setSelectedReturnId] = useState<string | null>(null);
 
     useEffect(() => {
         if (!outletId) return;
-        voucherApi
-            .getCreditNotes(outletId)
-            .then(setNotes)
+        salesApi
+            .getSalesReturns(outletId)
+            .then((res: any) => setReturns(res?.data || []))
             .catch(() => toast({ variant: 'destructive', title: 'Failed to load sale returns' }))
             .finally(() => setLoading(false));
     }, [outletId]);
@@ -44,7 +44,7 @@ export default function SaleReturnsPage() {
                         <h1 className="text-2xl font-bold tracking-tight">Sale Returns</h1>
                     </div>
                     <p className="pl-[46px] text-sm text-muted-foreground">
-                        Credit notes — accept returned goods from customers
+                        Accept returned goods from customers and restore stock
                     </p>
                 </div>
                 <Button asChild>
@@ -58,13 +58,13 @@ export default function SaleReturnsPage() {
 
             {loading ? (
                 <div className="text-sm text-muted-foreground">Loading...</div>
-            ) : notes.length === 0 ? (
+            ) : returns.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                     <ArrowDownLeft className="mx-auto h-10 w-10 mb-3 opacity-30" />
                     <p className="font-medium">No sale returns yet</p>
-                    <p className="text-sm mt-1">Create a credit note when accepting returned goods from a customer</p>
+                    <p className="text-sm mt-1">Process a return when a customer brings back goods</p>
                     <Button asChild className="mt-4" variant="outline">
-                        <Link href="/dashboard/accounts/sale-returns/new">Create Credit Note</Link>
+                        <Link href="/dashboard/accounts/sale-returns/new">New Return</Link>
                     </Button>
                 </div>
             ) : (
@@ -72,27 +72,33 @@ export default function SaleReturnsPage() {
                     <table className="w-full text-sm">
                         <thead className="bg-muted/50">
                             <tr>
-                                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Note No</th>
+                                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Return No</th>
                                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Date</th>
+                                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Original Invoice</th>
                                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Customer</th>
                                 <th className="px-4 py-3 text-right font-medium text-muted-foreground">Amount</th>
-                                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+                                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Refund Mode</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y">
-                            {notes.map((note) => (
-                                <tr key={note.id} className="hover:bg-muted/30 transition-colors">
-                                    <td className="px-4 py-3 font-mono text-xs">{note.creditNoteNo}</td>
+                            {returns.map((r) => (
+                                <tr 
+                                    key={r.id} 
+                                    className="hover:bg-muted/50 transition-colors cursor-pointer group"
+                                    onClick={() => setSelectedReturnId(r.id)}
+                                >
+                                    <td className="px-4 py-3 font-mono text-xs">{r.returnNo}</td>
                                     <td className="px-4 py-3 text-muted-foreground">
-                                        {format(new Date(note.date), 'dd MMM yyyy')}
+                                        {format(new Date(r.returnDate), 'dd MMM yyyy')}
                                     </td>
-                                    <td className="px-4 py-3">{note.customerName || '—'}</td>
+                                    <td className="px-4 py-3 font-mono text-xs">{r.originalInvoiceNo}</td>
+                                    <td className="px-4 py-3">{r.customerName || '—'}</td>
                                     <td className="px-4 py-3 text-right font-medium">
-                                        ₹{note.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        ₹{Number(r.totalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                     </td>
                                     <td className="px-4 py-3">
-                                        <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', STATUS_COLORS[note.status])}>
-                                            {note.status.charAt(0).toUpperCase() + note.status.slice(1)}
+                                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                            {REFUND_MODE_LABELS[r.refundMode] ?? r.refundMode}
                                         </span>
                                     </td>
                                 </tr>
@@ -101,6 +107,12 @@ export default function SaleReturnsPage() {
                     </table>
                 </div>
             )}
+
+            <SaleReturnDetailModal 
+                open={!!selectedReturnId} 
+                onOpenChange={(open) => !open && setSelectedReturnId(null)} 
+                returnId={selectedReturnId} 
+            />
         </div>
     );
 }
