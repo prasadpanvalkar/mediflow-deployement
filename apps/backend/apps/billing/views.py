@@ -1,6 +1,6 @@
 import logging
 from django.db import transaction
-from django.utils import timezone
+from datetime import datetime
 from django.db.models import Sum, Count, Q, F
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -256,7 +256,7 @@ class SaleCreateView(APIView):
                 sale_invoice = SaleInvoice.objects.create(
                     outlet=outlet,
                     invoice_no=invoice_no,
-                    invoice_date=timezone.now(),
+                    invoice_date=datetime.now(),
                     customer=customer,
                     subtotal=Decimal(str(request.data.get('subtotal', 0))),
                     discount_amount=Decimal(str(request.data.get('discountAmount', 0))),
@@ -464,7 +464,7 @@ class SaleCreateView(APIView):
                     # Update outstanding
                     credit_account.total_outstanding += credit_given_val
                     credit_account.total_borrowed += credit_given_val
-                    credit_account.last_transaction_date = timezone.now()
+                    credit_account.last_transaction_date = datetime.now()
                     credit_account.save()
 
                     # Create CreditTransaction (debit entry)
@@ -477,7 +477,7 @@ class SaleCreateView(APIView):
                         description=f'Sale on {invoice_no}',
                         balance_after=credit_account.total_outstanding,
                         recorded_by=billed_by,
-                        date=timezone.now().date(),
+                        date=datetime.now().date(),
                     )
 
                     logger.info(f"Created CreditTransaction for customer {customer.name}: ₹{credit_given_val}")
@@ -931,7 +931,7 @@ class CustomerCreditPaymentView(APIView):
                 elif credit_account.total_outstanding < credit_account.total_borrowed:
                     credit_account.status = 'partial'
 
-                credit_account.last_transaction_date = timezone.now()
+                credit_account.last_transaction_date = datetime.now()
                 credit_account.save()
 
                 logger.info(f"Updated CreditAccount: outstanding={credit_account.total_outstanding}, status={credit_account.status}")
@@ -967,7 +967,7 @@ class CustomerCreditPaymentView(APIView):
                     outlet=outlet,
                     entity_type='customer',
                     customer=credit_account.customer,
-                    date=datetime.fromisoformat(payment_date).date() if payment_date else timezone.now().date(),
+                    date=datetime.fromisoformat(payment_date).date() if payment_date else datetime.now().date(),
                     entry_type='receipt',
                     reference_no=reference_no or str(credit_transaction.id)[:20],
                     description=f"Credit payment from {credit_account.customer.name}",
@@ -1086,7 +1086,7 @@ class DashboardDailyView(APIView):
 
         try:
             outlet_id = request.query_params.get('outletId')
-            date_str = request.query_params.get('date', timezone.now().date().isoformat())
+            date_str = request.query_params.get('date', datetime.now().date().isoformat())
 
             # Validate outlet
             try:
@@ -1102,7 +1102,7 @@ class DashboardDailyView(APIView):
             try:
                 target_date = datetime.fromisoformat(date_str).date()
             except (ValueError, TypeError):
-                target_date = timezone.now().date()
+                target_date = datetime.now().date()
 
             logger.info(f"Fetching dashboard for {outlet.name} on {target_date}")
 
@@ -1332,7 +1332,7 @@ class DashboardDailyView(APIView):
             # Calculate days overdue (estimate from last transaction)
             days_overdue = 0
             if account.last_transaction_date:
-                days_overdue = (timezone.now() - account.last_transaction_date).days
+                days_overdue = (datetime.now() - account.last_transaction_date).days
 
             alerts['overdueAccounts'].append({
                 'customerId': str(account.customer_id),
@@ -1838,7 +1838,7 @@ class DistributorOutstandingSummaryView(APIView):
         except Outlet.DoesNotExist:
             return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        today = timezone.now().date()
+        today = datetime.now().date()
         distributors = Distributor.objects.filter(outlet=outlet, is_active=True)
 
         data = []

@@ -438,12 +438,12 @@ def post_credit_payment(outlet, customer, amount, payment_mode, source_id, narra
         lines.append(('credit', customer_ledger, amount))
 
         # ── Create JournalEntry ──
-        from django.utils.timezone import now
+        from datetime import datetime
         je = JournalEntry.objects.create(
             outlet=outlet,
             source_type='CREDIT_PAYMENT',
             source_id=source_id,
-            date=now().date(),
+            date=datetime.now().date(),
             narration=narration
         )
 
@@ -476,7 +476,7 @@ def reverse_journal(source_type, source_id, outlet_id, narration_prefix='REVERSA
     The original entry is NEVER deleted — it remains for the audit trail.
     """
     try:
-        from django.utils.timezone import now
+        from datetime import datetime
 
         # Find original journal
         original_je = JournalEntry.objects.get(
@@ -490,7 +490,7 @@ def reverse_journal(source_type, source_id, outlet_id, narration_prefix='REVERSA
             outlet_id=outlet_id,
             source_type='RETURN',
             source_id=source_id,
-            date=now().date(),
+            date=datetime.now().date(),
             narration=f"{narration_prefix} {original_je.narration}"
         )
 

@@ -1,10 +1,9 @@
 import logging
 from decimal import Decimal
-from datetime import timedelta
+from datetime import timedelta, datetime
 from typing import Dict, List, Any
 from django.db import transaction
 from django.core.exceptions import ValidationError
-from django.utils import timezone
 
 from apps.core.models import Outlet
 from apps.accounts.models import Staff
@@ -100,17 +99,16 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
             raise PurchaseServiceError(f"Staff {created_by_id} not found for outlet {outlet_id}")
 
         # ─── Step 4: Create PurchaseInvoice ────────────────────────────────────────────
-        invoice_date_str = payload['invoiceDate'].replace('Z', '+00:00')
-        invoice_date = timezone.datetime.fromisoformat(invoice_date_str)
-        if not isinstance(invoice_date, timezone.datetime):
-            invoice_date = timezone.make_aware(invoice_date)
+        # Parse invoice date - strip any timezone suffix (Z or +05:30); app runs in IST natively.
+        invoice_date_str = payload['invoiceDate'].rstrip('Z').split('+')[0]
+        invoice_date = datetime.fromisoformat(invoice_date_str)
 
         purchase_type = payload.get('purchaseType', 'credit')  # Default to credit
 
         # Compute due_date if not provided and purchase_type is credit
         due_date = None
         if payload.get('dueDate'):
-            due_date = timezone.datetime.fromisoformat(payload['dueDate']).date()
+            due_date = datetime.fromisoformat(payload['dueDate'].rstrip('Z').split('+')[0]).date()
         elif purchase_type == 'credit':
             due_date = invoice_date.date() + timedelta(days=distributor.credit_days)
 
@@ -164,7 +162,7 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
             batch_no = item_payload['batchNo']
             raw_expiry = item_payload['expiryDate']
             try:
-                expiry_date = timezone.datetime.fromisoformat(raw_expiry.replace('Z', '+00:00')).date()
+                expiry_date = datetime.fromisoformat(raw_expiry.rstrip('Z').split('+')[0]).date()
             except (ValueError, TypeError):
                 import re as _re
                 m = _re.match(r'^(\d{1,2})[\/\-](\d{2,4})$', raw_expiry)
@@ -394,7 +392,7 @@ def bill_by_bill_payment_allocate(payload: Dict[str, Any], outlet_id: str, creat
         )
 
         # ─── Step 2: Parse Payment Details ────────────────────────────────────────────────
-        payment_date = timezone.datetime.fromisoformat(payload['date']).date()
+        payment_date = datetime.fromisoformat(payload['date'].rstrip('Z').split('+')[0]).date()
         total_amount = Decimal(str(payload['totalAmount']))
         allocations = payload.get('allocations', [])
 

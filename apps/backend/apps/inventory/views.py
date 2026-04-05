@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from apps.core.permissions import IsManagerOrAbove
 from rest_framework import status
 from django.db.models import Q, Sum
-from django.utils import timezone
+from datetime import datetime
 from django.db import transaction, IntegrityError
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
@@ -319,7 +319,7 @@ class ProductSearchView(APIView):
             # - Not expired
             # - Active
             # - Sort by expiry_date (FEFO)
-            today = timezone.now().date()
+            today = datetime.now().date()
             batches = Batch.objects.filter(
                 product=product,
                 outlet=outlet,
@@ -475,7 +475,7 @@ class InventoryListView(APIView):
         logger.info(f"Found {products.count()} products with stock at outlet {outlet.name}")
 
         # Build ProductSearchResult for each product with batches
-        today = timezone.now().date()
+        today = datetime.now().date()
         results = []
 
         for product in products:
@@ -642,7 +642,7 @@ class InventoryAlertsView(APIView):
 
         logger.info(f"Fetching inventory alerts for outlet: {outlet.name}")
 
-        today = timezone.now().date()
+        today = datetime.now().date()
         low_stock = []
         expiring_in_30_days = []
         out_of_stock = []

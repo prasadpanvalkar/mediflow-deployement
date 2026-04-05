@@ -8,7 +8,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework import status
 from django.db.models import Q, Sum
 from django.core.exceptions import ValidationError
-from django.utils import timezone
+from datetime import datetime
 from datetime import date
 
 from apps.accounts.models import Staff, Customer

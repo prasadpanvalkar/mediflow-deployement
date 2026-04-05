@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
-from django.utils import timezone
+from datetime import datetime
 from django.db import transaction
 
 from apps.attendance.models import AttendanceRecord
@@ -77,8 +77,8 @@ class AttendanceCheckInView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
 
-            today = timezone.now().date()
-            current_time = timezone.now().time()
+            today = datetime.now().date()
+            current_time = datetime.now().time()
 
             with transaction.atomic():
                 record, created = AttendanceRecord.objects.get_or_create(
@@ -156,8 +156,8 @@ class AttendanceCheckOutView(APIView):
             photo = payload.get('photo')
 
             staff = Staff.objects.get(id=staff_id)
-            today = timezone.now().date()
-            current_time = timezone.now().time()
+            today = datetime.now().date()
+            current_time = datetime.now().time()
 
             try:
                 record = AttendanceRecord.objects.get(staff=staff, date=today, check_out_time__isnull=True)
@@ -196,7 +196,7 @@ class AttendanceTodayView(APIView):
         except Outlet.DoesNotExist:
             return Response({'detail': f'Outlet {outlet_id} not found'}, status=404)
         
-        today = timezone.now().date()
+        today = datetime.now().date()
         records = AttendanceRecord.objects.filter(outlet=outlet, date=today).select_related('staff')
         
         results = [serialize_attendance_record(r) for r in records]

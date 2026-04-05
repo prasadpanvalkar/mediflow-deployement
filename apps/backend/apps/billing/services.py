@@ -2,7 +2,7 @@ import logging
 import re
 from datetime import date
 from typing import List, Dict, Any, Optional
-from django.utils import timezone
+from datetime import datetime
 from django.db import transaction
 
 from apps.inventory.models import Batch, MasterProduct
@@ -59,7 +59,7 @@ def fefo_batch_select(outlet_id: str, product_id: str, qty_strips_needed: int) -
     # enclosing transaction.atomic() in the billing view.  Any concurrent bill
     # targeting the same batches will block here until this transaction commits
     # or rolls back, preventing the double-deduct race condition.
-    today = timezone.now().date()
+    today = datetime.now().date()
     batches = list(
         Batch.objects.select_for_update().filter(
             outlet=outlet,
@@ -205,7 +205,7 @@ def generate_invoice_number(outlet_id: str) -> str:
     logger.info(f"Generating invoice number for outlet {outlet.name}")
 
     # Get current year
-    current_year = timezone.now().year
+    current_year = datetime.now().year
 
     # Query last invoice for this outlet with SELECT FOR UPDATE (row-level lock)
     # This ensures concurrent transactions wait for each other to avoid duplicate sequences

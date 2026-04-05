@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from apps.core.permissions import IsAdminStaff
 from rest_framework import status
 from django.db.models import Sum, Count, Q
-from django.utils import timezone
+from datetime import datetime
 from datetime import datetime, date
 
 from django.db.models import F
@@ -81,7 +81,7 @@ class SalesDailyReportView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         else:
-            target_date = timezone.now().date()
+            target_date = datetime.now().date()
 
         logger.info(f"Generating daily sales report for {outlet.name} on {target_date}")
 

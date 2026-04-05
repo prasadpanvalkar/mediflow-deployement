@@ -13,7 +13,7 @@ from typing import Any, Dict
 from django.db import transaction
 from django.db.models import Sum
 from django.core.exceptions import ValidationError
-from django.utils import timezone
+from datetime import datetime
 
 from apps.core.models import Outlet
 from apps.accounts.models import Staff, Customer
@@ -60,7 +60,7 @@ def generate_return_number(outlet) -> str:
     Generate next RTN-YYYY-XXXXXX return number using SELECT FOR UPDATE.
     Must be called inside transaction.atomic().
     """
-    current_year = timezone.now().year
+    current_year = datetime.now().year
     last_return = (
         SalesReturn.objects
         .filter(outlet=outlet)
@@ -114,7 +114,7 @@ def create_receipt_payment(payload: Dict[str, Any], outlet_id: str, created_by_i
 
     total_amount = Decimal(str(payload['totalAmount']))
     allocations = payload.get('allocations', [])
-    payment_date = timezone.datetime.fromisoformat(payload['date']).date()
+    payment_date = datetime.fromisoformat(payload['date'].rstrip('Z').split('+')[0]).date()
 
     if not allocations:
         raise ReceiptServiceError("Receipt must have at least one allocation")
@@ -217,7 +217,7 @@ def create_expense_entry(payload: Dict[str, Any], outlet_id: str, created_by_id:
     if expense_head == 'other' and not custom_head:
         raise ExpenseServiceError("customHead is required when expenseHead is 'other'")
 
-    expense_date = timezone.datetime.fromisoformat(payload['date']).date()
+    expense_date = datetime.fromisoformat(payload['date'].rstrip('Z').split('+')[0]).date()
     amount = Decimal(str(payload['amount']))
 
     expense = ExpenseEntry.objects.create(
@@ -272,7 +272,7 @@ def create_sales_return(payload: Dict[str, Any], outlet_id: str, created_by_id: 
     if not items_payload:
         raise ReturnServiceError("Return must have at least one item")
 
-    return_date = timezone.datetime.fromisoformat(payload['returnDate']).date()
+    return_date = datetime.fromisoformat(payload['returnDate'].rstrip('Z').split('+')[0]).date()
     refund_mode = payload.get('refundMode', 'cash')
 
     # Validate each item and collect data
