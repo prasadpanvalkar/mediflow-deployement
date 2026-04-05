@@ -24,7 +24,7 @@ import { Customer, SaleInvoiceSummary, SaleInvoice } from '@/types';
 import { salesApi } from '@/lib/apiClient';
 import { InvoicePreviewModal } from '@/components/billing/InvoicePreviewModal';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const API_URL = process.env.NEXT_PUBLIC_API_URL!; // Required — set NEXT_PUBLIC_API_URL in .env
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -223,9 +223,9 @@ export function PrinterSettingsSection({ onDirty, onSaved, discardKey }: Printer
                         <div className="transform scale-[0.55] origin-top-left w-[182%]">
                             <div className="p-8 font-mono text-xs">
                                 <div className="text-center border-b pb-3 mb-3">
-                                    <p className="text-lg font-bold">MediFlow Pharmacy</p>
-                                    <p className="text-xs text-slate-500">123, MG Road, Mumbai — 400001</p>
-                                    <p className="text-xs text-slate-500">GSTIN: 27AABCS1234C1Z7 | Ph: 9876543210</p>
+                                    <p className="text-lg font-bold">Your Pharmacy Name</p>
+                                    <p className="text-xs text-slate-500">Your Address, City — PINCODE</p>
+                                    <p className="text-xs text-slate-500">GSTIN: — | Ph: —</p>
                                 </div>
                                 <table className="w-full text-xs">
                                     <thead>

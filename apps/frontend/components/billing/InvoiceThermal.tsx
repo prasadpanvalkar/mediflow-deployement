@@ -19,7 +19,7 @@ export const InvoiceThermal = forwardRef<HTMLDivElement, InvoiceThermalProps>(({
                 <h1 className="font-bold text-[14px] uppercase">{outlet?.name || 'MediFlow Pharmacy'}</h1>
                 <p>{outlet?.address || '123 Health St, City'}</p>
                 <p>Ph: {outlet?.phone || '+91 0000000000'}</p>
-                <p>GSTIN: {outlet?.gstin || '27XXXXX0000X1ZX'}</p>
+                <p>GSTIN: {outlet?.gstin || ''}</p>
             </div>
 
             <div className="border-t border-b border-black border-dashed py-2 mb-3">

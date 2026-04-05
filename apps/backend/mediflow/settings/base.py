@@ -6,9 +6,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 env = environ.Env()
 environ.Env.read_env(BASE_DIR / '.env')
 
-SECRET_KEY = env('SECRET_KEY')  # No default — must be set in .env / environment
+SECRET_KEY = env('SECRET_KEY')  # Required — must be set in .env; no fallback
 DEBUG = env.bool('DEBUG', default=False)
-ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', 'backend'])
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['backend'])
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -120,7 +120,10 @@ REST_FRAMEWORK = {
 
 CORS_ALLOWED_ORIGINS = env.list(
     'CORS_ALLOWED_ORIGINS',
-    default=[],  # Set in .env — e.g. https://yourdomain.com
+    default=[
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+    ]
 )
 CORS_ALLOW_CREDENTIALS = True
 

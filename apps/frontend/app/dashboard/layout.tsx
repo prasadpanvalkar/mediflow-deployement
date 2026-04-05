@@ -23,7 +23,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         if (_hasHydrated && !isAuthenticated) {
             router.push('/login');
         } else if (_hasHydrated && isAuthenticated) {
-            // Background sync session to ensure permissions are up to date
             authApi.me().then(data => {
                 if (data?.user) {
                     useAuthStore.getState().setUser(data.user);
@@ -34,8 +33,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     useKeyboardShortcuts({
         'b': () => router.push('/dashboard/billing'),
-        'Ctrl+s': () => {},
-        'Escape': () => {},
+        'Ctrl+s': () => { /* Save handled by individual components */ },
+        'Escape': () => { /* Escape handled by individual components */ },
     });
 
     if (!_hasHydrated || !isAuthenticated) {

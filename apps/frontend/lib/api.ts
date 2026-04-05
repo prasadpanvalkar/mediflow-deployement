@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
 
 export const api = axios.create({
     baseURL: BASE_URL,
@@ -12,21 +12,10 @@ export const api = axios.create({
     timeout: 10000
 });
 
-// Request Interceptor: Attach Token
+// Request Interceptor: forward cookies for cookie-based auth
 api.interceptors.request.use(
-    (config) => {
-        // We can't use hooks here, get state directly
-        const authState = useAuthStore.getState();
-        const token = 'MOCK_JWT_ACCESS_TOKEN'; // Realistic implementation would extract this from authState if stored
-
-        if (token && authState.isAuthenticated) {
-            config.headers['Authorization'] = `Bearer ${token}`;
-        }
-        return config;
-    },
-    (error) => {
-        return Promise.reject(error);
-    }
+    (config) => config,
+    (error) => Promise.reject(error)
 );
 
 // Response Interceptor: Handle 401 & Structured Errors
