@@ -122,7 +122,7 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(({
                             <span className="font-semibold">Bill Date :</span>{' '}
                             {format(new Date(invoiceDate), 'dd-MM-yyyy')}
                             <span className="font-semibold ml-2">TIME:</span>{' '}
-                            {format(new Date(invoiceDate), 'HH:mm')}
+                            {format(new Date(invoiceDate), 'hh:mm a')}
                         </p>
                         <p><span className="font-semibold">Mobile :</span> {customerPhone}</p>
                     </div>
@@ -241,7 +241,7 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(({
                         <p><span className="font-semibold">D.L.No.:-</span> {outletDrugLicenseNo || '—'}</p>
                         <p className="mt-0.5">
                             <span className="font-semibold">TIME :</span>{' '}
-                            {format(new Date(invoiceDate), 'HH:mm')}
+                            {format(new Date(invoiceDate), 'hh:mm a')}
                         </p>
                     </div>
                     {/* Right: Pharmacist signature */}

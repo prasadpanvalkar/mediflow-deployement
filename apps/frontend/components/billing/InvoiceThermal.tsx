@@ -29,7 +29,7 @@ export const InvoiceThermal = forwardRef<HTMLDivElement, InvoiceThermalProps>(({
                 </div>
                 <div className="flex justify-between mt-1">
                     <span>Staff: {user?.name?.split(' ')[0] || 'Admin'}</span>
-                    <span>{invoice.createdAt ? format(new Date(invoice.createdAt), 'HH:mm') : '—'}</span>
+                    <span>{invoice.createdAt ? format(new Date(invoice.createdAt), 'hh:mm a') : '—'}</span>
                 </div>
             </div>
 
