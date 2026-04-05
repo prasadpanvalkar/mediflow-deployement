@@ -336,7 +336,7 @@ class CustomerSearchView(APIView):
                 'gstin': customer.gstin,
                 'fixedDiscount': float(customer.fixed_discount),
                 'creditLimit': float(customer.credit_limit),
-                'outstanding': float(customer.outstanding),
+                'outstanding': float(customer.outstanding_balance),
                 'totalPurchases': float(customer.total_purchases),
                 'isChronic': customer.is_chronic,
                 'isActive': customer.is_active,
@@ -394,7 +394,7 @@ class CustomerDetailView(APIView):
             'gstin': customer.gstin,
             'fixedDiscount': float(customer.fixed_discount),
             'creditLimit': float(customer.credit_limit),
-            'outstanding': float(customer.outstanding),
+            'outstanding': float(customer.outstanding_balance),
             'totalPurchases': float(customer.total_purchases),
             'isChronic': customer.is_chronic,
             'isActive': customer.is_active,
@@ -484,7 +484,7 @@ class CustomerDetailView(APIView):
             'gstin': customer.gstin,
             'fixedDiscount': float(customer.fixed_discount),
             'creditLimit': float(customer.credit_limit),
-            'outstanding': float(customer.outstanding),
+            'outstanding': float(customer.outstanding_balance),
             'totalPurchases': float(customer.total_purchases),
             'isChronic': customer.is_chronic,
             'isActive': customer.is_active,
@@ -546,7 +546,7 @@ class CustomerListView(APIView):
                 'gstin': customer.gstin,
                 'fixedDiscount': float(customer.fixed_discount),
                 'creditLimit': float(customer.credit_limit),
-                'outstanding': float(customer.outstanding),
+                'outstanding': float(customer.outstanding_balance),
                 'totalPurchases': float(customer.total_purchases),
                 'isChronic': customer.is_chronic,
                 'isActive': customer.is_active,
@@ -641,7 +641,25 @@ class CustomerListView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        logger.info(f"Created customer {customer.id} ({customer.name}) for outlet {outlet.name}")
+        # Automatically create a Ledger for the new customer in the Sundry Debtors group
+        from apps.accounts.models import Ledger, LedgerGroup
+        debtor_group, _ = LedgerGroup.objects.get_or_create(
+            outlet=outlet,
+            name='Sundry Debtors',
+            defaults={'nature': 'asset', 'is_system': True}
+        )
+        Ledger.objects.create(
+            outlet=outlet,
+            name=f"{customer.name} ({customer.phone})",
+            group=debtor_group,
+            linked_customer=customer,
+            phone=customer.phone,
+            gstin=customer.gstin or '',
+            address=customer.address or '',
+            is_system=True
+        )
+
+        logger.info(f"Created customer {customer.id} ({customer.name}) and Ledger for outlet {outlet.name}")
 
         result = {
             'id': str(customer.id),
@@ -652,7 +670,7 @@ class CustomerListView(APIView):
             'gstin': customer.gstin,
             'fixedDiscount': float(customer.fixed_discount),
             'creditLimit': float(customer.credit_limit),
-            'outstanding': float(customer.outstanding),
+            'outstanding': float(customer.outstanding_balance),
             'totalPurchases': float(customer.total_purchases),
             'isChronic': customer.is_chronic,
             'isActive': customer.is_active,

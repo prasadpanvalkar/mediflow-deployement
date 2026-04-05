@@ -83,7 +83,7 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(({
     return (
         <div
             ref={ref}
-            className="bg-white text-slate-900 font-sans text-[11px] leading-tight w-[148mm] mx-auto p-4 print:p-3 print:shadow-none"
+            className="bg-white text-slate-900 font-sans text-[11px] leading-tight w-full max-w-2xl print:max-w-none print:w-full mx-auto p-4 border border-slate-400 print:p-3 print:shadow-none print:border-black"
             style={{ fontFamily: 'Arial, sans-serif' }}
         >
             {/* ── SECTION 1: OUTLET HEADER ── */}

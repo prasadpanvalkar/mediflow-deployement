@@ -14,6 +14,8 @@ import { cn } from '@/lib/utils';
 import { getPurchaseStatus, STATUS_CONFIG } from '@/lib/purchaseUtils';
 import { Separator } from '@/components/ui/separator';
 import { usePurchaseById } from '@/hooks/usePurchases';
+import { useAuthStore } from '@/store/authStore';
+import { useSettingsStore } from '@/store/settingsStore';
 
 interface PurchaseDetailModalProps {
     open: boolean;
@@ -26,6 +28,8 @@ const formatINR = (n: number | undefined) =>
 
 export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDetailModalProps) {
     const { data: fullInvoiceRes, isLoading } = usePurchaseById(open && invoice ? invoice.id : '');
+    const { outlet } = useAuthStore();
+    const settings = useSettingsStore();
 
     if (!invoice) return null;
 
@@ -39,7 +43,30 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 print:max-h-none print:overflow-visible print:p-0 print:border-none border-t-4 border-t-primary gap-0">
+            <DialogContent className="invoice-print-container max-w-4xl max-h-[90vh] overflow-y-auto p-0 print:max-h-none print:overflow-visible print:p-0 print:border-none border-t-4 border-t-primary gap-0">
+                
+                {/* ── Print Styles ── */}
+                <style dangerouslySetInnerHTML={{ __html: `
+                    @media print {
+                        @page { size: auto; margin: 0mm; }
+                        body { -webkit-print-color-adjust: exact; }
+                        body * { visibility: hidden; }
+                        .invoice-print-container, .invoice-print-container * { visibility: visible; }
+                        .invoice-print-container {
+                            position: absolute !important;
+                            left: 0 !important;
+                            top: 0 !important;
+                            margin: 0 !important;
+                            width: 100% !important;
+                            max-width: none !important;
+                            transform: none !important;
+                            box-shadow: none !important;
+                        }
+                        .invoice-print-container .print\\:hidden, .invoice-print-container .print\\:hidden * { 
+                            display: none !important; 
+                        }
+                    }
+                `}} />
 
                 {/* ── Screen-only Header ── */}
                 <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-white border-b print:hidden">
@@ -221,171 +248,170 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                 </div>
 
                 {/* ── Print-Only Professional Invoice ── */}
-                <div className="hidden print:block w-full max-w-[210mm] mx-auto p-[10mm] bg-white text-black font-sans box-border" style={{ fontFamily: 'Arial, sans-serif' }}>
+                <div className="hidden print:block w-full max-w-none mx-auto p-4 bg-white text-black font-sans box-border" style={{ fontFamily: 'Arial, sans-serif' }}>
 
-                    {/* Pharmacy Header */}
-                    <div className="text-center border-b-2 border-black pb-3 mb-4">
-                        <h1 className="text-2xl font-bold uppercase tracking-wider">Purchase Invoice</h1>
-                        <p className="text-sm mt-1">GRN / Stock Receipt</p>
-                    </div>
-
-                    {/* Header: Distributor Info & Invoice Metadata */}
-                    <div className="flex justify-between items-start border-b border-gray-300 pb-4 mb-4">
-                        <div className="w-1/2 pr-4">
-                            <p className="text-xs uppercase text-gray-500 font-semibold mb-1">From (Distributor)</p>
-                            <p className="font-bold text-base mb-1">{displayInvoice.distributor?.name || 'Unknown Distributor'}</p>
-                            {displayInvoice.distributor?.address && <p className="text-sm whitespace-pre-wrap text-gray-600">{displayInvoice.distributor.address}</p>}
-                            <div className="mt-1 text-sm text-gray-600">
-                                {displayInvoice.distributor?.phone && <p>Ph: {displayInvoice.distributor.phone}</p>}
-                                {displayInvoice.distributor?.gstin && <p>GSTIN: {displayInvoice.distributor.gstin}</p>}
-                                {displayInvoice.distributor?.drugLicenseNo && <p>DL No: {displayInvoice.distributor.drugLicenseNo}</p>}
-                            </div>
-                        </div>
-
-                        <div className="w-1/2 pl-4 text-right">
-                            <table className="ml-auto text-sm w-full max-w-[250px]">
-                                <tbody>
-                                    <tr>
-                                        <td className="text-gray-600 pb-1 w-1/2">Invoice No:</td>
-                                        <td className="font-bold pb-1 text-right">{displayInvoice.invoiceNo}</td>
-                                    </tr>
-                                    <tr>
-                                        <td className="text-gray-600 pb-1">Date:</td>
-                                        <td className="font-bold pb-1 text-right">{format(new Date(displayInvoice.invoiceDate), 'dd MMM yyyy')}</td>
-                                    </tr>
-                                    {displayInvoice.dueDate && (
-                                        <tr>
-                                            <td className="text-gray-600 pb-1">Due Date:</td>
-                                            <td className="font-bold pb-1 text-right">{format(new Date(displayInvoice.dueDate), 'dd MMM yyyy')}</td>
-                                        </tr>
+                    {/* PRINT LOGIC: Compute Outlet / Settings */}
+                    {(() => {
+                        const outletName = settings.outletName || outlet?.name || 'PHARMACY';
+                        const outletAddress = settings.outletAddress || outlet?.address || '';
+                        const outletCity = settings.outletCity || outlet?.city || '';
+                        const outletPhone = settings.outletPhone || outlet?.phone || '';
+                        const outletGstin = settings.outletGstin || outlet?.gstin || '';
+                        const outletDrugLicenseNo = settings.outletDrugLicenseNo || outlet?.drugLicenseNo || '';
+                        const outletLogoUrl = settings.outletLogoUrl || outlet?.logoUrl;
+                        return (
+                            <div className="bg-white text-slate-900 font-sans text-[11px] leading-tight w-full max-w-2xl print:max-w-none print:w-full mx-auto p-4 border border-slate-400 print:p-3 print:shadow-none print:border-black box-border" style={{ fontFamily: 'Arial, sans-serif' }}>
+                                
+                                {/* ── SECTION 1: OUTLET HEADER ── */}
+                                <div className="text-center mb-2">
+                                    {outletLogoUrl && (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img src={outletLogoUrl} alt="Logo" className="h-12 object-contain mx-auto mb-1" />
                                     )}
-                                    <tr>
-                                        <td className="text-gray-600">Type:</td>
-                                        <td className="font-bold text-right capitalize">{displayInvoice.purchaseType}</td>
-                                    </tr>
-                                    <tr>
-                                        <td className="text-gray-600">Status:</td>
-                                        <td className="font-bold text-right capitalize">{cfg.label}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                                    <h1 className="text-base font-bold uppercase tracking-wide leading-tight">
+                                        {outletName}
+                                    </h1>
+                                    <p className="text-[10px] text-slate-600 mt-0.5">
+                                        {outletAddress}{outletCity ? `, ${outletCity}` : ''}
+                                        {outletPhone ? `   Phone: ${outletPhone}` : ''}
+                                    </p>
+                                    {outletGstin && (
+                                        <p className="text-[10px] text-slate-500">GSTIN: {outletGstin}</p>
+                                    )}
+                                </div>
+                                
+                                <div className="border-t border-b border-slate-800 py-0.5 mb-2 text-center font-bold text-sm">
+                                    PURCHASE INVOICE RECORD
+                                </div>
+                                
+                                {/* ── SECTION 2: DISTRIBUTOR & INVOICE INFO ── */}
+                                <div className="border border-slate-400 mb-2">
+                                    <div className="grid grid-cols-2 gap-0">
+                                        <div className="border-r border-slate-300 px-2 py-1 space-y-0.5">
+                                            <p className="font-semibold text-slate-500 text-[9px] mb-1">FROM (DISTRIBUTOR)</p>
+                                            <p><span className="font-semibold">Name :</span> {displayInvoice.distributor?.name || 'Unknown'}</p>
+                                            <p className="whitespace-pre-wrap"><span className="font-semibold">Address :</span> {displayInvoice.distributor?.address || '—'}</p>
+                                            {displayInvoice.distributor?.gstin && <p><span className="font-semibold">GSTIN :</span> {displayInvoice.distributor.gstin}</p>}
+                                            {displayInvoice.distributor?.drugLicenseNo && <p><span className="font-semibold">DL No :</span> {displayInvoice.distributor.drugLicenseNo}</p>}
+                                        </div>
+                                        <div className="px-2 py-1 space-y-0.5">
+                                            <p><span className="font-semibold">Invoice No :</span> {displayInvoice.invoiceNo}</p>
+                                            <p>
+                                                <span className="font-semibold">Invoice Date :</span>{' '}
+                                                {format(new Date(displayInvoice.invoiceDate), 'dd-MM-yyyy')}
+                                            </p>
+                                            {displayInvoice.dueDate && (
+                                                <p>
+                                                    <span className="font-semibold">Due Date :</span>{' '}
+                                                    {format(new Date(displayInvoice.dueDate), 'dd-MM-yyyy')}
+                                                </p>
+                                            )}
+                                            <p><span className="font-semibold">Type :</span> <span className="capitalize">{displayInvoice.purchaseType}</span></p>
+                                            <p><span className="font-semibold">Status :</span> <span className="uppercase">{cfg.label}</span></p>
+                                            {displayInvoice.purchaseOrderRef && (
+                                                <p><span className="font-semibold">PO Ref:</span> {displayInvoice.purchaseOrderRef}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
 
-                    {/* Items Table */}
-                    <table className="w-full text-sm mb-4 border-collapse">
-                        <thead>
-                            <tr className="bg-gray-100 text-gray-700 uppercase tracking-tight text-[11px]" style={{ WebkitPrintColorAdjust: 'exact', colorAdjust: 'exact' }}>
-                                <th className="border border-gray-400 p-2 text-left w-8">#</th>
-                                <th className="border border-gray-400 p-2 text-left">Product Name</th>
-                                <th className="border border-gray-400 p-2 text-left">HSN</th>
-                                <th className="border border-gray-400 p-2 text-left">Batch</th>
-                                <th className="border border-gray-400 p-2 text-center">Exp</th>
-                                <th className="border border-gray-400 p-2 text-right">MRP</th>
-                                <th className="border border-gray-400 p-2 text-right">Qty</th>
-                                <th className="border border-gray-400 p-2 text-right">Rate</th>
-                                <th className="border border-gray-400 p-2 text-right">Disc/GST</th>
-                                <th className="border border-gray-400 p-2 text-right font-semibold">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody className="text-sm">
-                            {!displayInvoice.items?.length && (
-                                <tr><td colSpan={10} className="border border-gray-300 p-4 text-center text-gray-500">No items</td></tr>
-                            )}
-                            {displayInvoice.items?.map((item, idx) => (
-                                <tr key={item.id || idx}>
-                                    <td className="border border-gray-300 p-2 text-center text-gray-500">{idx + 1}</td>
-                                    <td className="border border-gray-300 p-2 font-medium">
-                                        {item.product?.name ?? item.customProductName ?? '—'}
-                                        {item.pkg > 1 && <span className="text-[10px] text-gray-400 ml-1 block">Pk: {item.pkg}</span>}
-                                    </td>
-                                    <td className="border border-gray-300 p-2 whitespace-nowrap text-gray-600">{item.hsnCode || '-'}</td>
-                                    <td className="border border-gray-300 p-2 whitespace-nowrap text-gray-600">{item.batchNo}</td>
-                                    <td className="border border-gray-300 p-2 text-center whitespace-nowrap text-gray-600">{item.expiryDate}</td>
-                                    <td className="border border-gray-300 p-2 text-right text-gray-600">{formatINR(item.mrp)}</td>
-                                    <td className="border border-gray-300 p-2 text-right text-gray-600">
-                                        {item.qty}
-                                        {item.freeQty > 0 && <span className="block text-[10px] text-gray-400">+{item.freeQty} Free</span>}
-                                    </td>
-                                    <td className="border border-gray-300 p-2 text-right text-gray-600">{formatINR(item.purchaseRate)}</td>
-                                    <td className="border border-gray-300 p-2 text-right text-gray-400">
-                                        <div className="text-xs">{item.discountPct}% Disc</div>
-                                        <div className="text-[10px]">{item.gstRate}% GST</div>
-                                    </td>
-                                    <td className="border border-gray-300 p-2 text-right font-bold text-gray-900">{formatINR(item.totalAmount)}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                                {/* ── SECTION 3: ITEMS TABLE ── */}
+                                <table className="w-full border-collapse border border-slate-400 mb-2 text-[10px]">
+                                    <thead>
+                                        <tr className="bg-slate-100 border-b border-slate-400">
+                                            <th className="border-r border-slate-300 px-1 py-1 text-center w-[4%]">#</th>
+                                            <th className="border-r border-slate-300 px-1 py-1 text-left w-[25%] font-bold">PRODUCT NAME</th>
+                                            <th className="border-r border-slate-300 px-1 py-1 text-center w-[12%]">Batch</th>
+                                            <th className="border-r border-slate-300 px-1 py-1 text-center w-[8%]">Exp</th>
+                                            <th className="border-r border-slate-300 px-1 py-1 text-right w-[8%]">MRP</th>
+                                            <th className="border-r border-slate-300 px-1 py-1 text-right w-[8%]">Qty</th>
+                                            <th className="border-r border-slate-300 px-1 py-1 text-right w-[8%]">Rate</th>
+                                            <th className="border-r border-slate-300 px-1 py-1 text-right w-[15%]">Disc/GST</th>
+                                            <th className="px-1 py-1 text-right w-[12%]">Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {!displayInvoice.items?.length && (
+                                            <tr><td colSpan={9} className="px-2 py-4 text-center text-slate-500 italic">No items found.</td></tr>
+                                        )}
+                                        {displayInvoice.items?.map((item, idx) => (
+                                            <tr key={item.id || idx} className="border-b border-slate-200">
+                                                <td className="border-r border-slate-200 px-1 py-0.5 text-center">{idx + 1}</td>
+                                                <td className="border-r border-slate-200 px-1 py-0.5 uppercase font-medium">
+                                                    {item.product?.name ?? item.customProductName ?? '—'}
+                                                    {item.pkg > 1 && <span className="text-[9px] text-slate-500 ml-1">Pk: {item.pkg}</span>}
+                                                </td>
+                                                <td className="border-r border-slate-200 px-1 py-0.5 text-center font-mono">{item.batchNo}</td>
+                                                <td className="border-r border-slate-200 px-1 py-0.5 text-center">{item.expiryDate}</td>
+                                                <td className="border-r border-slate-200 px-1 py-0.5 text-right">{formatINR(item.mrp)}</td>
+                                                <td className="border-r border-slate-200 px-1 py-0.5 text-right">
+                                                    {item.qty}
+                                                    {item.freeQty > 0 && <span className="block text-[9px] text-slate-400">+{item.freeQty} Free</span>}
+                                                </td>
+                                                <td className="border-r border-slate-200 px-1 py-0.5 text-right">{formatINR(item.purchaseRate)}</td>
+                                                <td className="border-r border-slate-200 px-1 py-0.5 text-right text-slate-600">
+                                                    <span className="whitespace-nowrap">{item.discountPct}% Dis</span>
+                                                    <br />
+                                                    <span className="whitespace-nowrap">{item.gstRate}% GST</span>
+                                                </td>
+                                                <td className="px-1 py-0.5 text-right font-semibold">{formatINR(item.totalAmount)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
 
-                    {/* Totals */}
-                    <div className="flex justify-end mb-4">
-                        <table className="text-sm w-full max-w-[280px] border-collapse">
-                            <tbody>
-                                <tr>
-                                    <td className="border border-gray-300 p-2 text-gray-600 w-[55%]">Subtotal</td>
-                                    <td className="border border-gray-300 p-2 text-right font-medium">{formatINR(displayInvoice.subtotal)}</td>
-                                </tr>
-                                <tr>
-                                    <td className="border border-gray-300 p-2 text-gray-600">Total Discount</td>
-                                    <td className="border border-gray-300 p-2 text-right">{formatINR(displayInvoice.discountAmount)}</td>
-                                </tr>
-                                <tr>
-                                    <td className="border border-gray-300 p-2 text-gray-600">Taxable Amount</td>
-                                    <td className="border border-gray-300 p-2 text-right">{formatINR(displayInvoice.taxableAmount)}</td>
-                                </tr>
-                                <tr>
-                                    <td className="border border-gray-300 p-2 text-gray-600">Total GST</td>
-                                    <td className="border border-gray-300 p-2 text-right">{formatINR(displayInvoice.gstAmount)}</td>
-                                </tr>
-                                {displayInvoice.freight > 0 && (
-                                    <tr>
-                                        <td className="border border-gray-300 p-2 text-gray-600">Freight</td>
-                                        <td className="border border-gray-300 p-2 text-right">{formatINR(displayInvoice.freight)}</td>
-                                    </tr>
-                                )}
-                                <tr className="bg-gray-100 font-bold text-base" style={{ WebkitPrintColorAdjust: 'exact', colorAdjust: 'exact' }}>
-                                    <td className="border-2 border-gray-400 p-3">Grand Total</td>
-                                    <td className="border-2 border-gray-400 p-3 text-right text-gray-900">{formatINR(displayInvoice.grandTotal)}</td>
-                                </tr>
-                                <tr>
-                                    <td className="border border-gray-300 p-2 text-gray-600">Amount Paid</td>
-                                    <td className="border border-gray-300 p-2 text-right text-green-700 font-medium">{formatINR(displayInvoice.amountPaid)}</td>
-                                </tr>
-                                <tr>
-                                    <td className="border border-gray-300 p-2 text-gray-600">Outstanding</td>
-                                    <td className="border border-gray-300 p-2 text-right text-red-700 font-medium">{formatINR(displayInvoice.outstanding)}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                                {/* ── SECTION 4: OUTSTANDING & TOTALS ── */}
+                                <div className="border border-slate-400 mb-2">
+                                    <div className="grid grid-cols-2">
+                                        <div className="border-r border-slate-300 px-2 py-1.5 space-y-1">
+                                            <p className="font-semibold text-[10px]">PAYMENT STATUS</p>
+                                            <p><span className="text-slate-600">Amount Paid : </span><span className="font-semibold text-emerald-700">{formatINR(displayInvoice.amountPaid)}</span></p>
+                                            <p><span className="text-slate-600">Outstanding : </span><span className="font-semibold text-red-700">{formatINR(displayInvoice.outstanding)}</span></p>
+                                            {displayInvoice.notes && (
+                                                <p className="mt-2 text-slate-600 italic text-[9px]">Note: {displayInvoice.notes}</p>
+                                            )}
+                                        </div>
+                                        <div className="px-2 py-1">
+                                            <div className="flex justify-between">
+                                                <span>Subtotal :</span>
+                                                <span className="font-medium">{formatINR(displayInvoice.subtotal)}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span>Discount :</span>
+                                                <span className="font-medium">{formatINR(displayInvoice.discountAmount)}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span>Taxable :</span>
+                                                <span className="font-medium">{formatINR(displayInvoice.taxableAmount)}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span>GST Amount :</span>
+                                                <span className="font-medium">{formatINR(displayInvoice.gstAmount)}</span>
+                                            </div>
+                                            {displayInvoice.freight > 0 && (
+                                                <div className="flex justify-between">
+                                                    <span>Freight :</span>
+                                                    <span className="font-medium">{formatINR(displayInvoice.freight)}</span>
+                                                </div>
+                                            )}
+                                            <div className="flex justify-between border-t border-slate-400 mt-0.5 pt-0.5">
+                                                <span className="font-bold">Grand Total :</span>
+                                                <span className="font-bold text-[12px] text-primary">{formatINR(displayInvoice.grandTotal)}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                {/* ── SECTION 5: FOOTER ── */}
+                                <div className="border-t border-slate-300 pt-2 mt-2 text-center text-[10px] text-slate-500">
+                                    <p>This is a computer generated purchase invoice. No signature required.</p>
+                                </div>
 
-                    {/* Footer */}
-                    <div className="border-t border-gray-300 pt-3 mt-4 text-xs text-gray-500 text-center">
-                        <p>This is a computer generated purchase invoice. No signature required.</p>
-                    </div>
+                            </div>
+                        );
+                    })()}
                 </div>
 
-                {/* Built-in Print Overrides */}
-                <style dangerouslySetInnerHTML={{ __html: `
-                    @media print {
-                        body * { visibility: hidden; }
-                        [role="dialog"], [role="dialog"] * { visibility: visible; }
-                        [role="dialog"] {
-                            position: absolute;
-                            left: 0;
-                            top: 0;
-                            margin: 0;
-                            padding: 0;
-                            width: 100%;
-                            max-width: none !important;
-                            transform: none !important;
-                            box-shadow: none !important;
-                            overflow: visible !important;
-                            border: none !important;
-                        }
-                    }
-                ` }} />
             </DialogContent>
         </Dialog>
     );

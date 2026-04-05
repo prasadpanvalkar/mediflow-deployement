@@ -135,6 +135,12 @@ class Customer(models.Model):
             models.Index(fields=['phone', 'outlet']),
         ]
 
+    @property
+    def outstanding_balance(self):
+        from apps.accounts.models import Ledger
+        ledger = Ledger.objects.filter(linked_customer=self, group__name='Sundry Debtors').first()
+        return ledger.current_balance if ledger else self.outstanding
+
     def __str__(self):
         return self.name
 

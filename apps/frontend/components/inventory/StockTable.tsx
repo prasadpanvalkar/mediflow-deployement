@@ -54,7 +54,7 @@ export function StockTable({ onProductClick, onAdjustClick }: any) {
             cell: ({ row }) => (
                 <div 
                     className="flex-1 min-w-[200px] cursor-pointer" 
-                    onClick={() => onProductClick(row.original.id)}
+                    onClick={() => onProductClick(row.original)}
                 >
                     <div className="text-sm font-semibold text-slate-900">{row.original.name}</div>
                     <div className="text-xs text-muted-foreground truncate">{row.original.composition}</div>
@@ -179,7 +179,7 @@ export function StockTable({ onProductClick, onAdjustClick }: any) {
             header: 'Actions',
             cell: ({ row }) => (
                 <div className="w-28 flex gap-1">
-                     <Button variant="outline" size="sm" onClick={() => onProductClick(row.original.id)}>
+                     <Button variant="outline" size="sm" onClick={() => onProductClick(row.original)}>
                          <Eye className="w-3 h-3" />
                      </Button>
                      <PermissionGate permission="manage_staff">

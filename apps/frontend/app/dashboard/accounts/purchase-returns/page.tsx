@@ -6,12 +6,12 @@ import { format } from 'date-fns';
 import { ArrowUpLeft, Plus } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useOutletId } from '@/hooks/useOutletId';
 import { voucherApi } from '@/lib/apiClient';
 import { DebitNote } from '@/types';
 import { cn } from '@/lib/utils';
+import { PurchaseReturnDetailModal } from '@/components/accounts/PurchaseReturnDetailModal';
 
 const STATUS_COLORS = {
     pending: 'bg-yellow-100 text-yellow-800',
@@ -24,6 +24,7 @@ export default function PurchaseReturnsPage() {
     const { toast } = useToast();
     const [notes, setNotes] = useState<DebitNote[]>([]);
     const [loading, setLoading] = useState(true);
+    const [selectedNote, setSelectedNote] = useState<DebitNote | null>(null);
 
     useEffect(() => {
         if (!outletId) return;
@@ -82,7 +83,11 @@ export default function PurchaseReturnsPage() {
                         </thead>
                         <tbody className="divide-y">
                             {notes.map((note) => (
-                                <tr key={note.id} className="hover:bg-muted/30 transition-colors">
+                                <tr 
+                                    key={note.id} 
+                                    className="hover:bg-muted/30 transition-colors cursor-pointer"
+                                    onClick={() => setSelectedNote(note)}
+                                >
                                     <td className="px-4 py-3 font-mono text-xs">{note.debitNoteNo}</td>
                                     <td className="px-4 py-3 text-muted-foreground">
                                         {format(new Date(note.date), 'dd MMM yyyy')}
@@ -102,6 +107,12 @@ export default function PurchaseReturnsPage() {
                     </table>
                 </div>
             )}
+            
+            <PurchaseReturnDetailModal
+                open={!!selectedNote}
+                onOpenChange={(open) => !open && setSelectedNote(null)}
+                note={selectedNote}
+            />
         </div>
     );
 }

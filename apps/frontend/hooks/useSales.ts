@@ -7,7 +7,7 @@ import { SaleInvoiceSummary, SaleItemDetail, SaleInvoice, PaginatedResponse } fr
 
 export function useCustomerInvoices(customerId: string) {
     const outletId = useOutletId();
-    return useQuery<{ data: SaleInvoiceSummary[] }>({
+    return useQuery<PaginatedResponse<SaleInvoiceSummary>>({
         queryKey: ['sales', 'customer', customerId, outletId],
         queryFn: () => salesApi.listByCustomer(outletId, customerId),
         enabled: !!customerId && !!outletId,

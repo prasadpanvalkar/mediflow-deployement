@@ -69,7 +69,8 @@ class LedgerListView(APIView):
             qs = qs.filter(group__name__iexact=group_name)
         search = request.query_params.get('search', '').strip()
         if search:
-            qs = qs.filter(name__icontains=search)
+            from django.db.models import Q
+            qs = qs.filter(Q(name__icontains=search) | Q(phone__icontains=search))
         voucher_type = request.query_params.get('voucherType', '').lower()
         if voucher_type == 'receipt':
             qs = qs.filter(group__nature__in=['asset', 'income'])

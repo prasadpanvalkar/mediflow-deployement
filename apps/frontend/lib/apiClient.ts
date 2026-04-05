@@ -720,15 +720,15 @@ const realDistributorsApi = {
         await assertOk(response);
         return response.json();
     },
-    getLedger: async (distributorId: string): Promise<DistributorLedgerEntry[]> => {
+    getLedger: async (distributorId: string): Promise<any> => {
         const response = await fetch(
             `${API_URL}/purchases/distributors/${distributorId}/ledger/`,
             { headers: getHeaders() }
         );
         await assertOk(response);
         const data = await response.json();
-        // Backend returns { distributor, ledger: [...], summary }
-        return data.ledger || data.data || [];
+        // Backend returns { distributor, entries: [...], openingBalance, closingBalance }
+        return data;
     },
     create: async (payload: any) => {
         const response = await fetch(`${API_URL}/purchases/distributors/`, {

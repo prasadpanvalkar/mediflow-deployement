@@ -648,8 +648,14 @@ class SaleListView(APIView):
 
         # ── Optional customer filter ─────────────────────────────────────────
         customer_id = request.query_params.get('customerId') or request.query_params.get('customer_id')
+        customer_obj = None
         if customer_id:
-            invoices = invoices.filter(customer_id=customer_id)
+            from apps.accounts.models import Customer
+            try:
+                customer_obj = Customer.objects.get(id=customer_id)
+                invoices = invoices.filter(customer_id=customer_id)
+            except Customer.DoesNotExist:
+                pass
 
         # ── Optional search filter ───────────────────────────────────────────
         search_q = request.query_params.get('search', '').strip()
@@ -708,6 +714,7 @@ class SaleListView(APIView):
             'upiCollected': float(agg.get('total_upi') or 0),
             'cardCollected': float(agg.get('total_card') or 0),
             'creditGiven': float(agg.get('total_credit') or 0),
+            'customerOutstanding': float(customer_obj.outstanding_balance) if customer_obj else None,
         }
 
         # ── Pagination ───────────────────────────────────────────────────────
@@ -1106,22 +1113,57 @@ class DashboardDailyView(APIView):
                 is_return=False
             )
 
-            # Aggregate KPIs
+            # Aggregate base KPIs
             aggregates = sales.aggregate(
                 total_sales=Sum('grand_total'),
                 total_bills=Count('id'),
-                cash_collected=Sum('cash_paid'),
-                upi_collected=Sum('upi_paid'),
-                card_collected=Sum('card_paid'),
-                credit_given=Sum('credit_given'),
+                inv_upi=Sum('upi_paid'),
+                inv_card=Sum('card_paid'),
             )
 
             total_sales = float(aggregates['total_sales'] or 0)
             total_bills = aggregates['total_bills'] or 0
-            cash_collected = float(aggregates['cash_collected'] or 0)
-            upi_collected = float(aggregates['upi_collected'] or 0)
-            card_collected = float(aggregates['card_collected'] or 0)
-            credit_given = float(aggregates['credit_given'] or 0)
+            
+            # Derive cash and bank net flows strictly from JournalLine
+            from apps.accounts.models import JournalLine, Ledger
+            from django.db.models.functions import Coalesce
+            
+            cash_agg = JournalLine.objects.filter(
+                journal_entry__outlet=outlet,
+                journal_entry__date=target_date,
+                ledger__group__name='Cash in Hand'
+            ).aggregate(
+                tot_collected=Coalesce(Sum('debit_amount'), Decimal('0'))
+            )
+            cash_collected = float(cash_agg['tot_collected'])
+
+            bank_agg = JournalLine.objects.filter(
+                journal_entry__outlet=outlet,
+                journal_entry__date=target_date,
+                ledger__group__name='Bank Accounts'
+            ).aggregate(
+                tot_collected=Coalesce(Sum('debit_amount'), Decimal('0'))
+            )
+            bank_collected = float(bank_agg['tot_collected'])
+            
+            # Apportion the bank collected amount between UPI and Card based on invoice ratios
+            inv_upi = float(aggregates['inv_upi'] or 0)
+            inv_card = float(aggregates['inv_card'] or 0)
+            inv_bank_total = inv_upi + inv_card
+            
+            if inv_bank_total > 0:
+                upi_collected = (inv_upi / inv_bank_total) * bank_collected
+                card_collected = (inv_card / inv_bank_total) * bank_collected
+            else:
+                upi_collected = bank_collected
+                card_collected = 0.0
+                
+            # Derive exact credit pending from Sundry Debtors
+            credit_given_decimal = Ledger.objects.filter(
+                outlet=outlet,
+                group__name='Sundry Debtors'
+            ).aggregate(tot=Sum('current_balance'))['tot'] or Decimal('0')
+            credit_given = float(credit_given_decimal)
 
             logger.info(f"Daily totals: Sales={total_sales}, Bills={total_bills}")
 
@@ -2036,7 +2078,7 @@ class UpdateCreditLimitView(APIView):
             'data': {
                 'id': str(customer.id),
                 'creditLimit': float(customer.credit_limit),
-                'outstandingBalance': float(customer.outstanding),
+                'outstandingBalance': float(customer.outstanding_balance),
             }
         }, status=status.HTTP_200_OK)
 

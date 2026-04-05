@@ -138,7 +138,7 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
             <Dialog
                 open={isOpen}
                 onOpenChange={(open) => {
-                    if (!open && !isMandatory) onClose();
+                    if (!open) onClose();
                 }}
             >
             <DialogContent

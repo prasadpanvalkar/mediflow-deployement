@@ -897,6 +897,9 @@ class BalanceSheetView(APIView):
         outlet_id = request.GET.get('outletId') or str(request.user.outlet_id)
 
         # ── ASSETS ──────────────────────────────────────────────────────────────
+        from apps.inventory.models import Batch
+        from apps.accounts.models import Ledger
+        from decimal import Decimal
 
         # 1. Stock value at purchase rate (qty_strips × purchase_rate per batch)
         stock_value = (
@@ -904,32 +907,45 @@ class BalanceSheetView(APIView):
             .aggregate(total=Sum(F('qty_strips') * F('purchase_rate')))['total'] or 0
         )
 
-        # 2. Customer receivables (outstanding balances on customer accounts)
-        receivables = (
-            Customer.objects.filter(outlet_id=outlet_id, outstanding__gt=0)
-            .aggregate(total=Sum('outstanding'))['total'] or 0
-        )
+        ledgers = Ledger.objects.filter(outlet_id=outlet_id).select_related('group')
+        
+        receivables = Decimal('0')
+        cash_and_bank = Decimal('0')
+        payables = Decimal('0')
+        other_assets = Decimal('0')
+        other_liabilities = Decimal('0')
+        
+        for ledger in ledgers:
+            bal = ledger.current_balance
+            if ledger.group.nature == 'asset':
+                if bal >= 0:
+                    if ledger.group.name == 'Sundry Debtors':
+                        receivables += bal
+                    elif ledger.group.name in ['Cash in Hand', 'Bank Accounts']:
+                        cash_and_bank += bal
+                    else:
+                        other_assets += bal
+                else:
+                    # Negative asset = liability
+                    other_liabilities += abs(bal)
+            elif ledger.group.nature == 'liability':
+                if bal >= 0:
+                    if ledger.group.name == 'Sundry Creditors':
+                        payables += bal
+                    else:
+                        other_liabilities += bal
+                else:
+                    # Negative liability = asset
+                    other_assets += abs(bal)
 
-        total_assets = float(stock_value) + float(receivables)
-
-        # ── LIABILITIES ──────────────────────────────────────────────────────────
-
-        # Distributor payables (sum of all unpaid purchase invoices)
-        payables = (
-            PurchaseInvoice.objects.filter(outlet_id=outlet_id, outstanding__gt=0)
-            .aggregate(total=Sum('outstanding'))['total'] or 0
-        )
-
-        total_liabilities = float(payables)
+        total_assets = float(stock_value) + float(receivables) + float(cash_and_bank) + float(other_assets)
+        total_liabilities = float(payables) + float(other_liabilities)
         net_worth = total_assets - total_liabilities
 
         # ── Breakdown details ────────────────────────────────────────────────────
         batch_count = Batch.objects.filter(outlet_id=outlet_id, qty_strips__gt=0, is_active=True).count()
-        customer_count = Customer.objects.filter(outlet_id=outlet_id, outstanding__gt=0).count()
-        distributor_count = (
-            PurchaseInvoice.objects.filter(outlet_id=outlet_id, outstanding__gt=0)
-            .values('distributor_id').distinct().count()
-        )
+        customer_count = Ledger.objects.filter(outlet_id=outlet_id, group__name='Sundry Debtors', current_balance__gt=0).count()
+        distributor_count = Ledger.objects.filter(outlet_id=outlet_id, group__name='Sundry Creditors', current_balance__gt=0).count()
 
         return Response({
             'success': True,
@@ -938,7 +954,8 @@ class BalanceSheetView(APIView):
                 'assets': {
                     'currentStock': float(stock_value),
                     'receivables': float(receivables),
-                    'cashAndBank': 0.0,   # Not tracked separately
+                    'cashAndBank': float(cash_and_bank),
+                    'otherAssets': float(other_assets),
                     'totalAssets': round(total_assets, 2),
                     'breakdown': {
                         'batchCount': batch_count,
@@ -947,6 +964,7 @@ class BalanceSheetView(APIView):
                 },
                 'liabilities': {
                     'payables': float(payables),
+                    'otherLiabilities': float(other_liabilities),
                     'totalLiabilities': round(total_liabilities, 2),
                     'breakdown': {
                         'distributorsWithOutstanding': distributor_count,

@@ -15,6 +15,7 @@ import { Separator } from '@/components/ui/separator';
 import { useSalesList, useSaleById } from '@/hooks/useSales';
 import { SaleInvoice } from '@/types';
 import { cn } from '@/lib/utils';
+import { InvoicePreviewModal } from '@/components/billing/InvoicePreviewModal';
 
 // ── formatters ────────────────────────────────────────────────────────────────
 const fmt = (n: number | undefined) =>
@@ -48,184 +49,17 @@ const DATE_PRESETS = [
 
 // ── Invoice View Modal ────────────────────────────────────────────────────────
 function SaleInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: () => void }) {
-    const { data: invoice, isLoading } = useSaleById(invoiceId);
+    const { data: invoice } = useSaleById(invoiceId);
 
     return (
-        <Dialog open={true} onOpenChange={() => onClose()}>
-            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-0 print:max-h-none print:overflow-visible border-t-4 border-t-primary gap-0">
-                {/* Header */}
-                <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-white border-b print:hidden">
-                    <div>
-                        <DialogTitle className="text-xl">Sale Invoice</DialogTitle>
-                        {invoice && <p className="text-sm text-muted-foreground mt-0.5">#{invoice.invoiceNo} · {format(new Date(invoice.invoiceDate), 'dd MMM yyyy')}</p>}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={() => window.print()}>
-                            <Printer className="w-4 h-4 mr-2" />Print / PDF
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
-                            <X className="w-4 h-4" />
-                        </Button>
-                    </div>
-                </div>
-
-                {/* Screen content */}
-                {isLoading ? (
-                    <div className="p-8 animate-pulse space-y-4 print:hidden">
-                        {[...Array(5)].map((_, i) => <div key={i} className="h-8 bg-slate-100 rounded" />)}
-                    </div>
-                ) : invoice ? (
-                    <div className="p-8 print:hidden">
-                        {/* Customer & Payment */}
-                        <div className="grid grid-cols-2 gap-6 mb-6 text-sm">
-                            <div>
-                                <h3 className="text-xs uppercase text-muted-foreground font-semibold mb-2">Customer</h3>
-                                <div className="bg-slate-50 border rounded-lg p-3">
-                                    <p className="font-semibold">{invoice.customer?.name ?? 'Walk-in Customer'}</p>
-                                    {invoice.customer?.phone && <p className="text-muted-foreground text-xs mt-0.5">{invoice.customer.phone}</p>}
-                                </div>
-                            </div>
-                            <div>
-                                <h3 className="text-xs uppercase text-muted-foreground font-semibold mb-2">Payment</h3>
-                                <div className="bg-slate-50 border rounded-lg p-3">
-                                    <span className={cn('px-2 py-0.5 rounded border text-[10px] font-semibold uppercase', PAYMENT_COLORS[invoice.paymentMode] ?? 'bg-slate-100')}>
-                                        {invoice.paymentMode}
-                                    </span>
-                                    <p className="text-xs text-muted-foreground mt-2">Billed by: {invoice.billedByName || '—'}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Items */}
-                        <div className="rounded border overflow-hidden mb-6">
-                            <table className="w-full text-xs text-left">
-                                <thead className="bg-muted/50 border-b">
-                                    <tr>
-                                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase">#</th>
-                                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase">Product</th>
-                                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase text-right">Qty</th>
-                                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase text-right">Rate</th>
-                                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase text-right">Disc%</th>
-                                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase text-right">Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y">
-                                    {invoice.items?.map((item: any, i: number) => (
-                                        <tr key={i} className="hover:bg-slate-50">
-                                            <td className="px-3 py-2.5 text-muted-foreground">{i + 1}</td>
-                                            <td className="px-3 py-2.5 font-medium">{item.name ?? item.productName ?? '—'}</td>
-                                            <td className="px-3 py-2.5 text-right">{item.totalQty ?? item.qtyStrips ?? 1}</td>
-                                            <td className="px-3 py-2.5 text-right tabular-nums">{fmt(item.rate ?? item.mrp)}</td>
-                                            <td className="px-3 py-2.5 text-right text-muted-foreground">{item.discountPct ?? 0}%</td>
-                                            <td className="px-3 py-2.5 text-right tabular-nums font-semibold">{fmt(item.totalAmount)}</td>
-                                        </tr>
-                                    ))}
-                                    {(!invoice.items || invoice.items.length === 0) && (
-                                        <tr><td colSpan={6} className="px-3 py-8 text-center text-muted-foreground italic">No items found.</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        {/* Totals */}
-                        <div className="flex justify-end">
-                            <div className="w-64 space-y-1.5 text-sm">
-                                <div className="flex justify-between text-muted-foreground">
-                                    <span>Subtotal</span><span>{fmt(invoice.subtotal)}</span>
-                                </div>
-                                <div className="flex justify-between text-emerald-600">
-                                    <span>Discount</span><span>−{fmt(invoice.discountAmount)}</span>
-                                </div>
-                                <div className="flex justify-between text-muted-foreground">
-                                    <span>GST</span><span>{fmt((invoice.cgstAmount ?? 0) + (invoice.sgstAmount ?? 0))}</span>
-                                </div>
-                                <Separator className="my-1" />
-                                <div className="flex justify-between font-bold text-base bg-slate-50 p-2 rounded border">
-                                    <span>Grand Total</span>
-                                    <span className="tabular-nums text-primary">{fmt(invoice.grandTotal)}</span>
-                                </div>
-                                {invoice.amountDue > 0 && (
-                                    <div className="flex justify-between text-orange-600 font-semibold text-xs pt-1">
-                                        <span>Amount Due (Credit)</span><span>{fmt(invoice.amountDue)}</span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="p-8 text-center text-muted-foreground print:hidden">Invoice not found.</div>
-                )}
-
-                {/* Print-only invoice */}
-                {invoice && (
-                    <div className="hidden print:block w-full max-w-[210mm] mx-auto p-[10mm] bg-white text-black" style={{ fontFamily: 'Arial, sans-serif' }}>
-                        <div className="text-center border-b-2 border-black pb-3 mb-4">
-                            <h1 className="text-2xl font-bold uppercase">Sale Invoice</h1>
-                            <p className="text-sm">#{invoice.invoiceNo} · {format(new Date(invoice.invoiceDate), 'dd MMM yyyy')}</p>
-                        </div>
-                        <div className="flex justify-between mb-4 text-sm">
-                            <div>
-                                <p className="text-gray-500 text-xs mb-1">Customer</p>
-                                <p className="font-bold">{invoice.customer?.name ?? 'Walk-in Customer'}</p>
-                                {invoice.customer?.phone && <p className="text-gray-600">{invoice.customer.phone}</p>}
-                            </div>
-                            <div className="text-right">
-                                <p className="text-gray-500 text-xs mb-1">Payment Mode</p>
-                                <p className="font-bold capitalize">{invoice.paymentMode}</p>
-                            </div>
-                        </div>
-                        <table className="w-full text-sm mb-4 border-collapse">
-                            <thead>
-                                <tr className="bg-gray-100" style={{ WebkitPrintColorAdjust: 'exact', colorAdjust: 'exact' }}>
-                                    <th className="border border-gray-400 p-2 text-left">#</th>
-                                    <th className="border border-gray-400 p-2 text-left">Product</th>
-                                    <th className="border border-gray-400 p-2 text-right">Qty</th>
-                                    <th className="border border-gray-400 p-2 text-right">Rate</th>
-                                    <th className="border border-gray-400 p-2 text-right">Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {invoice.items?.map((item: any, i: number) => (
-                                    <tr key={i}>
-                                        <td className="border border-gray-300 p-2">{i + 1}</td>
-                                        <td className="border border-gray-300 p-2 font-medium">{item.name ?? item.productName ?? '—'}</td>
-                                        <td className="border border-gray-300 p-2 text-right">{item.totalQty ?? item.qtyStrips ?? 1}</td>
-                                        <td className="border border-gray-300 p-2 text-right">{fmt(item.rate ?? item.mrp)}</td>
-                                        <td className="border border-gray-300 p-2 text-right font-bold">{fmt(item.totalAmount)}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                        <div className="flex justify-end">
-                            <table className="text-sm w-56 border-collapse">
-                                <tbody>
-                                    <tr><td className="border border-gray-300 p-2 text-gray-600">Subtotal</td><td className="border border-gray-300 p-2 text-right">{fmt(invoice.subtotal)}</td></tr>
-                                    <tr><td className="border border-gray-300 p-2 text-gray-600">Discount</td><td className="border border-gray-300 p-2 text-right">{fmt(invoice.discountAmount)}</td></tr>
-                                    <tr><td className="border border-gray-300 p-2 text-gray-600">GST</td><td className="border border-gray-300 p-2 text-right">{fmt((invoice.cgstAmount ?? 0) + (invoice.sgstAmount ?? 0))}</td></tr>
-                                    <tr className="font-bold" style={{ WebkitPrintColorAdjust: 'exact', colorAdjust: 'exact' }}>
-                                        <td className="border-2 border-gray-400 p-3 bg-gray-100">Grand Total</td>
-                                        <td className="border-2 border-gray-400 p-3 text-right bg-gray-100">{fmt(invoice.grandTotal)}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                        <div className="mt-4 pt-3 border-t border-gray-300 text-xs text-gray-500 text-center">
-                            Computer generated invoice · No signature required
-                        </div>
-                    </div>
-                )}
-
-                <style dangerouslySetInnerHTML={{ __html: `
-                    @media print {
-                        body * { visibility: hidden; }
-                        [role="dialog"], [role="dialog"] * { visibility: visible; }
-                        [role="dialog"] { position: absolute; left: 0; top: 0; width: 100%; max-width: none !important; transform: none !important; box-shadow: none !important; overflow: visible !important; border: none !important; }
-                    }
-                ` }} />
-            </DialogContent>
-        </Dialog>
+        <InvoicePreviewModal
+            isOpen={true}
+            onClose={onClose}
+            invoice={invoice as any}
+        />
     );
 }
+
 
 // ── Main Sales Page ───────────────────────────────────────────────────────────
 export default function SalesList() {

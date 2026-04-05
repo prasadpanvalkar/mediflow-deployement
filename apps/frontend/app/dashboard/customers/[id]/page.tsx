@@ -210,7 +210,7 @@ function InvoiceHistory({ customerId }: { customerId: string }) {
     // Summary cards (calculated from ALL invoices, not filtered)
     const totalBills = allInvoices.length;
     const totalBilled = allInvoices.reduce((s, inv) => s + inv.grandTotal, 0);
-    const totalOutstanding = allInvoices.reduce((s, inv) => s + (inv.amountDue ?? 0), 0);
+    const totalOutstanding = data?.analytics?.customerOutstanding ?? allInvoices.reduce((s, inv) => s + (inv.amountDue ?? 0), 0);
 
     // Period filter
     const periodStart = getPeriodStart(period);

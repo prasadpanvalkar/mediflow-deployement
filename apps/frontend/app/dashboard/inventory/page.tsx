@@ -27,7 +27,7 @@ export default function InventoryPage() {
     const { filters, setFilter, clearFilters } = useInventoryFilters();
 
     const [activeTab, setActiveTab] = useState<string>('all');
-    const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+    const [selectedProduct, setSelectedProduct] = useState<ProductSearchResult | null>(null);
     const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
     const [adjustmentBatch, setAdjustmentBatch] = useState<Batch | null>(null);
 
@@ -106,7 +106,7 @@ export default function InventoryPage() {
         },
         'Escape': () => {
              clearFilters();
-             setSelectedProductId(null);
+             setSelectedProduct(null);
         },
         'e': () => setActiveTab('expiring'),
         'l': () => setActiveTab('low_stock'),
@@ -157,7 +157,7 @@ export default function InventoryPage() {
                  <div className="mt-6">
                      <TabsContent value="all" className="mt-0 outline-none">
                          <StockTable
-                             onProductClick={setSelectedProductId}
+                             onProductClick={setSelectedProduct}
                              onAdjustClick={(batch: Batch) => {
                                  setAdjustmentBatch(batch);
                                  setShowAdjustmentModal(true);
@@ -183,9 +183,10 @@ export default function InventoryPage() {
              </Tabs>
 
              <BatchDetailDrawer
-                 productId={selectedProductId}
-                 isOpen={!!selectedProductId}
-                 onClose={() => setSelectedProductId(null)}
+                 productId={selectedProduct?.id ?? null}
+                 product={selectedProduct}
+                 isOpen={!!selectedProduct}
+                 onClose={() => setSelectedProduct(null)}
                  onAdjust={(batch: Batch) => {
                      setAdjustmentBatch(batch);
                      setShowAdjustmentModal(true);

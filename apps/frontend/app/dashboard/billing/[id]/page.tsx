@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button'
 import { salesApi } from '@/lib/apiClient'
 import { InvoicePreview } from '@/components/billing/InvoicePreview'
 import { InvoiceThermal } from '@/components/billing/InvoiceThermal'
-import { usePrintInvoice } from '@/hooks/usePrintInvoice'
 import { useSettingsStore } from '@/store/settingsStore'
 
 // Loading Skeleton
@@ -52,8 +51,11 @@ export default function PastInvoicePage() {
     const [copied, setCopied] = useState(false)
 
     const printRef = useRef<HTMLDivElement>(null)
-    const { handlePrint } = usePrintInvoice(printRef)
-    const isThermal = printerType.startsWith('thermal')
+
+    const handlePrint = () => {
+        if (typeof window !== 'undefined') window.print()
+    }
+    const isThermal = printerType?.startsWith('thermal')
 
     const { data: invoice, isLoading, isError } = useQuery({
         queryKey: ['invoice', invoiceId],
@@ -92,10 +94,10 @@ export default function PastInvoicePage() {
     }
 
     return (
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div className="past-invoice-print-container max-w-4xl mx-auto space-y-6">
 
             {/* Header Actions */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 print:hidden">
                 <div>
                     <Button variant="ghost" size="sm" onClick={() => router.back()} className="-ml-2 text-slate-500 mb-1 hover:text-slate-900">
                         <ArrowLeft className="w-4 h-4 mr-2" /> Back
@@ -134,13 +136,39 @@ export default function PastInvoicePage() {
             </div>
 
             {/* Invoice Container */}
-            <div className={`mx-auto bg-white shadow-md border border-slate-200 rounded-xl overflow-hidden py-4 ${isThermal ? 'w-[80mm] box-content' : ''}`}>
-                <div className="flex items-center justify-between px-6 py-2 bg-slate-50 border-b border-slate-200 mb-6 text-sm">
+            <div className={`mx-auto bg-white shadow-md border border-slate-200 rounded-xl overflow-hidden py-4 print:shadow-none print:border-none print:py-0 print:m-0 ${isThermal ? 'w-[80mm] box-content' : ''}`}>
+                <div className="flex items-center justify-between px-6 py-2 bg-slate-50 border-b border-slate-200 mb-6 text-sm print:hidden">
                     <span className="font-semibold text-slate-600">
                         {isThermal ? 'Thermal Layout' : 'A4 Layout'}
                     </span>
                     <span className="text-slate-400">Printer: {printerType}</span>
                 </div>
+                
+                {/* Built-in Print Overrides for native Ctrl+P to hide nav/sidebar */}
+                <style dangerouslySetInnerHTML={{ __html: `
+                    @media print {
+                        @page {
+                            size: ${!isThermal ? 'auto' : printerType === 'thermal_80mm' ? '80mm auto' : '57mm auto'};
+                            margin: 0mm;
+                        }
+                        body { -webkit-print-color-adjust: exact; }
+                        body * { visibility: hidden; }
+                        /* We want to make sure the root layout sidebar and header don't show up. */
+                        .past-invoice-print-container, .past-invoice-print-container * { visibility: visible; }
+                        /* But hide the header actions */
+                        .past-invoice-print-container .print\\:hidden, .past-invoice-print-container .print\\:hidden * { display: none !important; }
+                        .past-invoice-print-container {
+                            position: absolute;
+                            left: 0;
+                            top: 0;
+                            margin: 0;
+                            width: 100%;
+                            max-width: none !important;
+                            transform: none !important;
+                            box-shadow: none !important;
+                        }
+                    }
+                ` }} />
 
                 {isThermal ? (
                     <InvoiceThermal ref={printRef} invoice={invoice} />

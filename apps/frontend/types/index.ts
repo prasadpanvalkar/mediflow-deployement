@@ -54,6 +54,18 @@ export interface ApiError {
 
 export interface PaginatedResponse<T> {
     data: T[];
+    analytics?: {
+        totalRevenue: number;
+        totalCost: number;
+        totalProfit: number;
+        totalDiscount: number;
+        totalBills: number;
+        cashCollected: number;
+        upiCollected: number;
+        cardCollected: number;
+        creditGiven: number;
+        customerOutstanding?: number | null;
+    };
     pagination: {
         page: number;
         pageSize: number;

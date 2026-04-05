@@ -73,7 +73,15 @@ function DistributorLedgerContent({ entityId, from, to }: { entityId: string; fr
         );
     }
 
-    const entries = (((data as any)?.entries) ?? []).filter((e: any) => e.date >= from && e.date <= to);
+    const getEntries = (d: any) => {
+        if (!d) return [];
+        if (Array.isArray(d)) return d;
+        return d.entries || d.ledger || d.data || [];
+    };
+
+    const entries = getEntries(data).filter((e: any) =>
+        e.date >= from && e.date <= to + 'T23:59:59'
+    );
 
     return <LedgerTable entries={entries} openingBalance={(data as any)?.openingBalance ?? 0} closingBalance={(data as any)?.closingBalance ?? 0} />;
 }
@@ -98,7 +106,15 @@ function CustomerLedgerContent({ entityId, from, to }: { entityId: string; from:
         );
     }
 
-    const entries = (((data as any)?.entries) ?? []).filter((e: any) => e.date >= from && e.date <= to);
+    const getEntries = (d: any) => {
+        if (!d) return [];
+        if (Array.isArray(d)) return d;
+        return d.entries || d.ledger || d.data || [];
+    };
+
+    const entries = getEntries(data).filter((e: any) =>
+        e.date >= from && e.date <= to + 'T23:59:59'
+    );
 
     return <LedgerTable entries={entries} openingBalance={(data as any)?.openingBalance ?? 0} closingBalance={(data as any)?.closingBalance ?? 0} />;
 }

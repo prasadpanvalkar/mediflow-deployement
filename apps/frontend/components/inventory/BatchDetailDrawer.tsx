@@ -12,18 +12,18 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { PermissionGate } from '@/components/shared/PermissionGate';
 import { useRouter } from 'next/navigation';
 
-export function BatchDetailDrawer({ productId, isOpen, onClose, onAdjust }: any) {
+export function BatchDetailDrawer({ productId, product, isOpen, onClose, onAdjust }: any) {
     const router = useRouter();
     const { data: batches, isLoading } = useProductBatches(productId);
     const data = batches || [];
 
     // Derive product details and aggregates from the batches array
     const { productInfo, totalStrips, averageMrp } = React.useMemo(() => {
-        if (!data || data.length === 0) return { productInfo: null, totalStrips: 0, averageMrp: 0 };
+        if (!data || data.length === 0) return { productInfo: product || null, totalStrips: 0, averageMrp: 0 };
         
-        // Grab product details from the first batch
+        // Grab product details from the passed product prop, or the first batch
         const firstBatch = data[0];
-        const info = firstBatch.product || {};
+        const info = product || (firstBatch ? firstBatch.product : {});
         
         const total = data.reduce((sum: number, b: any) => sum + (Number(b.qtyStrips) || 0), 0);
         
