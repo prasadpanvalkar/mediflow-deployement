@@ -7,3 +7,14 @@ class CoreConfig(AppConfig):
 
     def ready(self):
         import apps.core.signals  # noqa: F401
+
+        # ── Global IST timezone for all DRF DateTimeField outputs ─────────────
+        # Override DRF's ModelSerializer field mapping so that every
+        # DateTimeField in every serializer returns timestamps in
+        # IST (Asia/Kolkata, UTC+05:30) automatically.
+        # This is the single source of truth – no frontend patching needed.
+        import django.db.models as models
+        from rest_framework.serializers import ModelSerializer
+        from apps.core.fields import ISTDateTimeField
+
+        ModelSerializer.serializer_field_mapping[models.DateTimeField] = ISTDateTimeField

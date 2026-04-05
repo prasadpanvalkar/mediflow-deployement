@@ -4,7 +4,6 @@ import React, { forwardRef } from 'react';
 import { format } from 'date-fns';
 import { SaleInvoice } from '@/types';
 import { useAuthStore } from '@/store/authStore';
-import { toIST } from '@/lib/utils';
 
 interface InvoiceThermalProps {
     invoice: SaleInvoice;
@@ -26,11 +25,11 @@ export const InvoiceThermal = forwardRef<HTMLDivElement, InvoiceThermalProps>(({
             <div className="border-t border-b border-black border-dashed py-2 mb-3">
                 <div className="flex justify-between">
                     <span>INV: {invoice.invoiceNo ?? '—'}</span>
-                    <span>{invoice.createdAt ? format(toIST(invoice.createdAt), 'dd.MM.yy') : '—'}</span>
+                    <span>{invoice.createdAt ? format(new Date(invoice.createdAt), 'dd.MM.yy') : '—'}</span>
                 </div>
                 <div className="flex justify-between mt-1">
                     <span>Staff: {user?.name?.split(' ')[0] || 'Admin'}</span>
-                    <span>{invoice.createdAt ? format(toIST(invoice.createdAt), 'HH:mm') : '—'}</span>
+                    <span>{invoice.createdAt ? format(new Date(invoice.createdAt), 'HH:mm') : '—'}</span>
                 </div>
             </div>
 

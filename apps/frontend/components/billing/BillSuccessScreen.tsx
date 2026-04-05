@@ -6,7 +6,6 @@ import { CheckCircle2, Printer, MessageCircle, Plus, FileText } from 'lucide-rea
 import { Button } from '@/components/ui/button';
 import { SaleInvoice } from '@/types';
 import { useAuthStore } from '@/store/authStore';
-import { toIST } from '@/lib/utils';
 
 interface BillSuccessScreenProps {
     invoice: SaleInvoice;
@@ -40,7 +39,7 @@ export function BillSuccessScreen({ invoice, onNewBill, onPrint, onViewInvoice }
                         ₹{Number(invoice.grandTotal).toFixed(2)} &mdash; <span className="uppercase text-slate-500">{invoice.paymentMode}</span>
                     </p>
                     <p className="text-xs text-slate-400">
-                        {format(toIST(invoice.createdAt), 'hh:mm a, dd MMM yyyy')}
+                        {format(new Date(invoice.createdAt), 'hh:mm a, dd MMM yyyy')}
                     </p>
                 </div>
             </div>
