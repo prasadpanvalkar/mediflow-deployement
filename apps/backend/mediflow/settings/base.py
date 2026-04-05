@@ -6,7 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 env = environ.Env()
 environ.Env.read_env(BASE_DIR / '.env')
 
-SECRET_KEY = env('SECRET_KEY', default='unsafe-secret-key')
+SECRET_KEY = env('SECRET_KEY')  # No default — must be set in .env / environment
 DEBUG = env.bool('DEBUG', default=False)
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', 'backend'])
 
@@ -120,10 +120,7 @@ REST_FRAMEWORK = {
 
 CORS_ALLOWED_ORIGINS = env.list(
     'CORS_ALLOWED_ORIGINS',
-    default=[
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-    ]
+    default=[],  # Set in .env — e.g. https://yourdomain.com
 )
 CORS_ALLOW_CREDENTIALS = True
 

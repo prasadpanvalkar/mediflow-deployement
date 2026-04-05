@@ -20,9 +20,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const router = useRouter();
 
     useEffect(() => {
-        console.log("DashboardLayout mounted. _hasHydrated:", _hasHydrated, "isAuthenticated:", isAuthenticated);
         if (_hasHydrated && !isAuthenticated) {
-            console.log("Redirecting to login because hydrated but not authenticated");
             router.push('/login');
         } else if (_hasHydrated && isAuthenticated) {
             // Background sync session to ensure permissions are up to date
@@ -36,8 +34,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     useKeyboardShortcuts({
         'b': () => router.push('/dashboard/billing'),
-        'Ctrl+s': () => { console.log('Save triggered') },
-        'Escape': () => { console.log('Escape triggered') },
+        'Ctrl+s': () => {},
+        'Escape': () => {},
     });
 
     if (!_hasHydrated || !isAuthenticated) {
