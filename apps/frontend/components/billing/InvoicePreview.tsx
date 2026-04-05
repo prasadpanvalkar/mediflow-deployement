@@ -5,7 +5,7 @@ import { format } from 'date-fns';
 import { SaleInvoice } from '@/types';
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
-import { formatQty } from '@/lib/utils';
+import { formatQty, toIST } from '@/lib/utils';
 import { SCHEDULE_MARKERS } from '@/constants/scheduleTypes';
 
 interface InvoicePreviewProps {
@@ -120,9 +120,9 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(({
                         <p><span className="font-semibold">Bill No :</span> {invoice.invoiceNo}</p>
                         <p>
                             <span className="font-semibold">Bill Date :</span>{' '}
-                            {format(new Date(invoiceDate), 'dd-MM-yyyy')}
+                            {format(toIST(invoiceDate), 'dd-MM-yyyy')}
                             <span className="font-semibold ml-2">TIME:</span>{' '}
-                            {format(new Date(invoiceDate), 'HH:mm')}
+                            {format(toIST(invoiceDate), 'HH:mm')}
                         </p>
                         <p><span className="font-semibold">Mobile :</span> {customerPhone}</p>
                     </div>
@@ -241,7 +241,7 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(({
                         <p><span className="font-semibold">D.L.No.:-</span> {outletDrugLicenseNo || '—'}</p>
                         <p className="mt-0.5">
                             <span className="font-semibold">TIME :</span>{' '}
-                            {format(new Date(invoiceDate), 'HH:mm')}
+                            {format(toIST(invoiceDate), 'HH:mm')}
                         </p>
                     </div>
                     {/* Right: Pharmacist signature */}
