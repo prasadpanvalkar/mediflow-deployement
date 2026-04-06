@@ -1,132 +1,142 @@
-
-
 services:
+
+  # ── Database ──────────────────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
     container_name: mediflow_postgres
-    restart: unless-stopped          # ← ADDED
+    restart: unless-stopped
     environment:
       TZ: Asia/Kolkata
-      PGTZ: Asia/Kolkata
-      POSTGRES_DB: mediflow
-      POSTGRES_USER: mediflow
-      POSTGRES_PASSWORD: mediflow
-        
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mediflow"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - internal
 
+  # ── Cache / Message Broker ────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: mediflow_redis
-    restart: unless-stopped          # ← ADDED
+    restart: unless-stopped
     environment:
       TZ: Asia/Kolkata
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - internal
 
+  # ── Django Backend (Gunicorn) ─────────────────────────────────────────
   backend:
     build:
       context: ./apps/backend
       dockerfile: ../../docker/backend.Dockerfile
-      network: host
     container_name: mediflow_backend
-    restart: unless-stopped          # ← ADDED
-    command: >
-      sh -c "python manage.py migrate &&
-             python manage.py runserver 0.0.0.0:8000"
+    restart: unless-stopped
+    command:
+      - "sh"
+      - "-c"
+      - "python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn mediflow.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120 --access-logfile - --error-logfile -"
     volumes:
-      - ./apps/backend:/app
-      - static_files:/app/staticfiles  # ← ADDED (so collectstatic output persists)
-    ports:
-      - "8000:8000"
+      - static_files:/app/staticfiles
+      - media_files:/app/media
     env_file:
       - ./apps/backend/.env
     environment:
       TZ: Asia/Kolkata
-      DJANGO_SETTINGS_MODULE: mediflow.settings.dev
+      DJANGO_SETTINGS_MODULE: mediflow.settings.prod
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - internal
 
+  # ── Next.js Frontend ──────────────────────────────────────────────────
   frontend:
     build:
       context: .
       dockerfile: docker/frontend.Dockerfile
-      network: host
     container_name: mediflow_frontend
-    restart: unless-stopped          # ← ADDED
-    command: npm run dev
-    volumes:
-      - ./apps/frontend:/app/apps/frontend
-      - /app/apps/frontend/node_modules
-      - /app/apps/frontend/.next
-      - playwright-browsers:/ms-playwright
-    ports:
-      - "3000:3000"
+    restart: unless-stopped
+    command: ["sh", "-c", "npm run build && npm start"]
     env_file:
       - ./apps/frontend/.env.local
     environment:
-      - TZ=Asia/Kolkata
-      - NODE_ENV=development
-      - CHOKIDAR_USEPOLLING=true
-      - WATCHPACK_POLLING=true
-    depends_on:
-      - backend
-
-  nginx:
-    image: nginx:latest
-    restart: unless-stopped
-    environment:
       TZ: Asia/Kolkata
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - static_files:/app/staticfiles:ro
+      NODE_ENV: production
     depends_on:
       - backend
-      - frontend
+    networks:
+      - internal
 
+  # ── Celery Worker ─────────────────────────────────────────────────────
   celery:
     build:
       context: ./apps/backend
       dockerfile: ../../docker/backend.Dockerfile
-      network: host
     container_name: mediflow_celery
     restart: unless-stopped
-    command: celery -A mediflow worker --loglevel=info --concurrency=2
+    command: ["celery", "-A", "mediflow", "worker", "--loglevel=info", "--concurrency=2"]
     volumes:
-      - ./apps/backend:/app
+      - media_files:/app/media
     env_file:
       - ./apps/backend/.env
     environment:
       TZ: Asia/Kolkata
-      DJANGO_SETTINGS_MODULE: mediflow.settings.dev
+      DJANGO_SETTINGS_MODULE: mediflow.settings.prod
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - internal
 
+  # ── Nginx (Internal Proxy) ────────────────────────────────────────────
+  nginx:
+    image: nginx:stable-alpine
+    container_name: mediflow_nginx
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Kolkata
+    ports:
+      - "8090:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - static_files:/app/staticfiles:ro
+      - media_files:/app/media:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - internal
+
+# ── Volumes ───────────────────────────────────────────────────────────────
 volumes:
   postgres_data:
+    external: true
+    name: mediflow_postgres_data
   redis_data:
+    external: true
+    name: mediflow_redis_data
   static_files:
-  playwright-browsers:
+  media_files:
+
+# ── Networks ──────────────────────────────────────────────────────────────
+networks:
+  internal:
+    driver: bridge
