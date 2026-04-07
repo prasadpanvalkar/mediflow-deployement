@@ -1401,15 +1401,28 @@ const realDoctorsApi = {
         return (data.data || []).map((d: any) => ({
             id: d.id,
             name: d.name,
-            regNo: d.registrationNo ?? '',
+            regNo: d.registrationNo ?? d.regNo ?? '',
+            degree: d.degree ?? '',
             qualification: d.qualification ?? '',
-            specialty: d.specialization ?? '',
+            specialty: d.specialty ?? d.specialization ?? '',
+            hospitalName: d.hospitalName ?? '',
+            address: d.address ?? '',
             phone: d.phone ?? '',
             outletId,
             isActive: true,
         }));
     },
-    create: async (payload: { name: string; registrationNo: string; outletId: string; qualification?: string; phone?: string }): Promise<any> => {
+    create: async (payload: { 
+        name: string; 
+        registrationNo: string; 
+        outletId: string; 
+        qualification?: string; 
+        phone?: string;
+        degree?: string;
+        hospitalName?: string;
+        address?: string;
+        specialty?: string;
+    }): Promise<any> => {
         const response = await fetch(`${API_URL}/doctors/`, {
             method: 'POST',
             headers: getHeaders(),
@@ -1421,8 +1434,6 @@ const realDoctorsApi = {
         return {
             id: d.id,
             name: d.name,
-            regNo: d.registrationNo ?? '',
-            qualification: d.qualification ?? '',
             specialty: d.specialization ?? '',
             phone: d.phone ?? '',
             outletId: payload.outletId,

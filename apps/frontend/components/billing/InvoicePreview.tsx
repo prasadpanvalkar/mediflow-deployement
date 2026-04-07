@@ -131,9 +131,16 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(({
                 <div className="border-t border-slate-300 grid grid-cols-2 px-2 py-1">
                     <p className="text-[10px]">
                         <span className="font-semibold">Doctor Name :</span>{' '}
-                        {invoice.doctorName
-                            ? `${invoice.doctorName}${invoice.doctorRegNo ? `  REG.NO: ${invoice.doctorRegNo}` : ''}`
-                            : '—'}
+                        {invoice.doctorName ? (
+                            <>
+                                <span className="uppercase">{invoice.doctorName}</span>
+                                {invoice.doctorDegree && <span className="ml-1">({invoice.doctorDegree})</span>}
+                                {invoice.doctorSpecialty && <span className="ml-2">• {invoice.doctorSpecialty}</span>}
+                                {invoice.doctorRegNo && invoice.doctorRegNo !== 'NA' && invoice.doctorRegNo !== 'N/A' && (
+                                    <span className="ml-3 font-semibold text-slate-700">REG. NO: {invoice.doctorRegNo}</span>
+                                )}
+                            </>
+                        ) : '—'}
                     </p>
                     <p className="text-[10px] text-right">
                         <span className="font-semibold">ABHA No.:</span>

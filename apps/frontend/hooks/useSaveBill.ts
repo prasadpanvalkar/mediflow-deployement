@@ -140,6 +140,11 @@ export function useSaveBill() {
                 customer: (invoice as any).customer ?? savedCustomer ?? undefined,
                 doctorName: savedDoctor?.name ?? savedScheduleH?.doctorName ?? undefined,
                 doctorRegNo: savedDoctor?.regNo ?? savedScheduleH?.doctorRegNo ?? undefined,
+                doctorDegree: savedDoctor?.degree ?? undefined,
+                doctorSpecialty: savedDoctor?.specialty ?? (savedDoctor as any)?.specialization ?? undefined,
+                doctorHospitalName: savedDoctor?.hospitalName ?? undefined,
+                doctorAddress: savedDoctor?.address ?? undefined,
+                doctorQualification: savedDoctor?.qualification ?? undefined,
                 patientName: savedScheduleH?.patientName ?? undefined,
                 patientAddress: savedScheduleH?.patientAddress ?? undefined,
             };

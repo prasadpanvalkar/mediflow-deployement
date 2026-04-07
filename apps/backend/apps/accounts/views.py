@@ -1400,6 +1400,7 @@ class DoctorListCreateView(APIView):
 
     def get(self, request, *args, **kwargs):
         from apps.accounts.models import Doctor
+        from django.db.models import Q
         outlet_id = request.query_params.get('outletId') or str(request.user.outlet_id)
         try:
             outlet = Outlet.objects.get(id=outlet_id)
@@ -1414,10 +1415,15 @@ class DoctorListCreateView(APIView):
         data = [{
             'id': str(d.id),
             'name': d.name,
-            'specialization': d.specialty,
             'phone': d.phone,
             'registrationNo': d.registration_no,
+            'regNo': d.registration_no,
+            'degree': d.degree,
             'qualification': d.qualification,
+            'specialty': d.specialty,
+            'specialization': d.specialty,
+            'hospitalName': d.hospital_name,
+            'address': d.address,
         } for d in qs.order_by('name')]
 
         return Response({'success': True, 'data': data, 'meta': {'total': len(data)}}, status=status.HTTP_200_OK)
@@ -1433,25 +1439,33 @@ class DoctorListCreateView(APIView):
         doctor = Doctor.objects.create(
             outlet=outlet,
             name=request.data.get('name', ''),
-            specialty=request.data.get('specialization', ''),
             phone=request.data.get('phone', ''),
-            registration_no=request.data.get('registrationNo', ''),
+            registration_no=request.data.get('registrationNo') or request.data.get('regNo', ''),
+            degree=request.data.get('degree', ''),
             qualification=request.data.get('qualification', ''),
+            specialty=request.data.get('specialty') or request.data.get('specialization', ''),
+            hospital_name=request.data.get('hospitalName', ''),
+            address=request.data.get('address', ''),
             is_active=True,
         )
         data = {
             'id': str(doctor.id),
             'name': doctor.name,
-            'specialization': doctor.specialty,
             'phone': doctor.phone,
             'registrationNo': doctor.registration_no,
+            'regNo': doctor.registration_no,
+            'degree': doctor.degree,
             'qualification': doctor.qualification,
+            'specialty': doctor.specialty,
+            'specialization': doctor.specialty,
+            'hospitalName': doctor.hospital_name,
+            'address': doctor.address,
         }
         return Response({'success': True, 'data': data}, status=status.HTTP_201_CREATED)
 
 
 class DoctorDetailView(APIView):
-    """GET/PATCH /api/v1/doctors/{pk}/"""
+    """GET/PUT/PATCH /api/v1/doctors/{pk}/"""
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk, *args, **kwargs):
@@ -1466,10 +1480,57 @@ class DoctorDetailView(APIView):
         except Doctor.DoesNotExist:
             return Response({'detail': 'Doctor not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        return Response({'success': True, 'data': {
-            'id': str(d.id), 'name': d.name, 'specialization': d.specialty,
-            'phone': d.phone, 'registrationNo': d.registration_no, 'qualification': d.qualification,
-        }}, status=status.HTTP_200_OK)
+        data = {
+            'id': str(d.id),
+            'name': d.name,
+            'phone': d.phone,
+            'registrationNo': d.registration_no,
+            'regNo': d.registration_no,
+            'degree': d.degree,
+            'qualification': d.qualification,
+            'specialty': d.specialty,
+            'specialization': d.specialty,
+            'hospitalName': d.hospital_name,
+            'address': d.address,
+        }
+        return Response({'success': True, 'data': data}, status=status.HTTP_200_OK)
+
+    def put(self, request, pk, *args, **kwargs):
+        from apps.accounts.models import Doctor
+        outlet_id = request.data.get('outletId') or str(request.user.outlet_id)
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            d = Doctor.objects.get(id=pk, outlet=outlet)
+        except Doctor.DoesNotExist:
+            return Response({'detail': 'Doctor not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        d.name = request.data.get('name', d.name)
+        d.phone = request.data.get('phone', d.phone)
+        d.registration_no = request.data.get('registrationNo') or request.data.get('regNo', d.registration_no)
+        d.degree = request.data.get('degree', d.degree)
+        d.qualification = request.data.get('qualification', d.qualification)
+        d.specialty = request.data.get('specialty') or request.data.get('specialization', d.specialty)
+        d.hospital_name = request.data.get('hospitalName', d.hospital_name)
+        d.address = request.data.get('address', d.address)
+        d.save()
+
+        data = {
+            'id': str(d.id),
+            'name': d.name,
+            'phone': d.phone,
+            'registrationNo': d.registration_no,
+            'regNo': d.registration_no,
+            'degree': d.degree,
+            'qualification': d.qualification,
+            'specialty': d.specialty,
+            'specialization': d.specialty,
+            'hospitalName': d.hospital_name,
+            'address': d.address,
+        }
+        return Response({'success': True, 'data': data}, status=status.HTTP_200_OK)
 
     def patch(self, request, pk, *args, **kwargs):
         from apps.accounts.models import Doctor

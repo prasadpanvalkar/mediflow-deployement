@@ -422,6 +422,11 @@ export interface SaleInvoice {
     createdAt: string;
     doctorName?: string;
     doctorRegNo?: string;
+    doctorDegree?: string;
+    doctorSpecialty?: string;
+    doctorHospitalName?: string;
+    doctorAddress?: string;
+    doctorQualification?: string;
     patientName?: string;
     patientAddress?: string;
     prescriptionNo?: string;

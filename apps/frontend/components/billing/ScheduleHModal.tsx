@@ -64,6 +64,11 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
     const [showCreateForm, setShowCreateForm] = useState(false);
     const [newDoctorName, setNewDoctorName] = useState('');
     const [newDoctorRegNo, setNewDoctorRegNo] = useState('');
+    const [newDoctorDegree, setNewDoctorDegree] = useState('');
+    const [newDoctorHospital, setNewDoctorHospital] = useState('');
+    const [newDoctorAddress, setNewDoctorAddress] = useState('');
+    const [newDoctorSpecialty, setNewDoctorSpecialty] = useState('');
+    const [newDoctorQualification, setNewDoctorQualification] = useState('');
 
     const debouncedQuery = useDebounce(doctorQuery, 300);
     const { data: doctorResults = [], isLoading: isDoctorSearching } = useDoctorSearch(debouncedQuery);
@@ -105,11 +110,22 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
             const doctor = await createDoctorMutation.mutateAsync({
                 name: newDoctorName.trim(),
                 registrationNo: newDoctorRegNo.trim(),
+                degree: newDoctorDegree.trim(),
+                hospitalName: newDoctorHospital.trim(),
+                address: newDoctorAddress.trim(),
+                specialty: newDoctorSpecialty.trim(),
+                qualification: newDoctorQualification.trim(),
             });
             handleDoctorSelect(doctor);
             setShowCreateForm(false);
+            // Reset fields
             setNewDoctorName('');
             setNewDoctorRegNo('');
+            setNewDoctorDegree('');
+            setNewDoctorHospital('');
+            setNewDoctorAddress('');
+            setNewDoctorSpecialty('');
+            setNewDoctorQualification('');
             toast({ title: `${doctor.name} added` });
         } catch {
             toast({ variant: 'destructive', title: 'Failed to create doctor' });
@@ -142,7 +158,7 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
             >
             <DialogContent
                 data-testid="schedule-h-modal"
-                className="max-w-xl max-h-[90vh] overflow-y-auto"
+                className="max-w-2xl max-h-[95vh] overflow-y-auto"
                 onInteractOutside={(e) => {
                     if (isMandatory) e.preventDefault();
                 }}
@@ -175,12 +191,18 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
                             {selectedDoctor ? (
                                 /* Selected doctor badge */
                                 <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5">
-                                    <Stethoscope className="w-4 h-4 text-blue-600 shrink-0" />
+                                    <Stethoscope className="w-5 h-5 text-blue-600 shrink-0" />
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-semibold text-slate-800 leading-tight">{selectedDoctor.name}</p>
+                                        <div className="flex items-baseline gap-2">
+                                            <p className="text-sm font-semibold text-slate-800 leading-tight">{selectedDoctor.name}</p>
+                                            {selectedDoctor.degree && <span className="text-xs text-slate-500 font-normal">({selectedDoctor.degree})</span>}
+                                        </div>
                                         <p className="text-xs text-slate-500 mt-0.5">
-                                            {selectedDoctor.regNo && `Reg: ${selectedDoctor.regNo}`}
-                                            {selectedDoctor.qualification && ` • ${selectedDoctor.qualification}`}
+                                            {[
+                                                selectedDoctor.regNo && `Reg: ${selectedDoctor.regNo}`,
+                                                selectedDoctor.specialty || (selectedDoctor as any).specialization,
+                                                selectedDoctor.hospitalName
+                                            ].filter(Boolean).join(' • ')}
                                         </p>
                                     </div>
                                     <button type="button" onClick={handleDoctorClear} className="text-slate-400 hover:text-red-500 transition-colors p-0.5">
@@ -188,12 +210,19 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
                                     </button>
                                 </div>
                             ) : showCreateForm ? (
-                                /* Inline create form */
-                                <div className="space-y-3 border border-slate-200 rounded-lg p-4 bg-slate-50">
-                                    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">New Doctor</p>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="text-xs font-medium text-slate-600 mb-1 block">Name *</label>
+                                /* Inline create form - Expanded */
+                                <div className="space-y-4 border border-slate-200 rounded-lg p-5 bg-slate-50/50">
+                                    <div className="flex justify-between items-center">
+                                        <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">New Doctor Details</p>
+                                        <Button type="button" variant="ghost" size="sm" className="h-6 text-xs text-slate-400 hover:text-slate-600"
+                                            onClick={() => { setShowCreateForm(false); setNewDoctorName(''); setNewDoctorRegNo(''); }}>
+                                            <X className="w-3 h-3 mr-1" /> Close
+                                        </Button>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-medium text-slate-600">Full Name *</label>
                                             <Input
                                                 value={newDoctorName}
                                                 onChange={e => setNewDoctorName(e.target.value)}
@@ -201,8 +230,8 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
                                                 className="h-9 text-sm"
                                             />
                                         </div>
-                                        <div>
-                                            <label className="text-xs font-medium text-slate-600 mb-1 block">Reg. No. *</label>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-medium text-slate-600">Reg. No. *</label>
                                             <Input
                                                 value={newDoctorRegNo}
                                                 onChange={e => setNewDoctorRegNo(e.target.value)}
@@ -210,18 +239,60 @@ export function ScheduleHModal({ isOpen, onClose, onSubmit, isMandatory }: Sched
                                                 className="h-9 text-sm"
                                             />
                                         </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-medium text-slate-600">Degree</label>
+                                            <Input
+                                                value={newDoctorDegree}
+                                                onChange={e => setNewDoctorDegree(e.target.value)}
+                                                placeholder="MBBS, MD"
+                                                className="h-9 text-sm"
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-medium text-slate-600">Specialties</label>
+                                            <Input
+                                                value={newDoctorSpecialty}
+                                                onChange={e => setNewDoctorSpecialty(e.target.value)}
+                                                placeholder="Cardiology"
+                                                className="h-9 text-sm"
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-medium text-slate-600">Hospital Name</label>
+                                            <Input
+                                                value={newDoctorHospital}
+                                                onChange={e => setNewDoctorHospital(e.target.value)}
+                                                placeholder="City Hospital"
+                                                className="h-9 text-sm"
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-medium text-slate-600">Qualification</label>
+                                            <Input
+                                                value={newDoctorQualification}
+                                                onChange={e => setNewDoctorQualification(e.target.value)}
+                                                placeholder="FCPS, DGO"
+                                                className="h-9 text-sm"
+                                            />
+                                        </div>
+                                        <div className="col-span-2 space-y-1">
+                                            <label className="text-xs font-medium text-slate-600">Hospital Address</label>
+                                            <Input
+                                                value={newDoctorAddress}
+                                                onChange={e => setNewDoctorAddress(e.target.value)}
+                                                placeholder="Full hospital address"
+                                                className="h-9 text-sm"
+                                            />
+                                        </div>
                                     </div>
-                                    <div className="flex gap-2 justify-end">
-                                        <Button type="button" variant="ghost" size="sm"
-                                            onClick={() => { setShowCreateForm(false); setNewDoctorName(''); setNewDoctorRegNo(''); }}>
-                                            Cancel
-                                        </Button>
-                                        <Button type="button" size="sm"
+
+                                    <div className="flex gap-2 justify-end pt-2">
+                                        <Button type="button" size="sm" className="px-6"
                                             disabled={!newDoctorName.trim() || !newDoctorRegNo.trim() || createDoctorMutation.isPending}
                                             onClick={handleCreateDoctor}>
                                             {createDoctorMutation.isPending
                                                 ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Saving…</>
-                                                : 'Save & Select'}
+                                                : 'Save & Select Doctor'}
                                         </Button>
                                     </div>
                                 </div>
