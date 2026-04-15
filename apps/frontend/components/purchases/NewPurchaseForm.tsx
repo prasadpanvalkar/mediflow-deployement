@@ -75,8 +75,8 @@ const defaultDue = format(addDays(new Date(), 30), 'yyyy-MM-dd');
 export const emptyItem = (): PurchaseItemFormData => ({
     productId: '', productName: '', isCustom: false, hsnCode: '',
     batchNo: '', expiryDate: '',
-    pkg: 1, qty: 0, freeQty: 0,
-    purchaseRate: 0, discountPct: 0, cashDiscountPct: 0,
+    pkg: 1, packUnitLabel: '', qty: 0, freeQty: 0,
+    purchaseRate: 0, freightPerUnit: 0, otherCostPerUnit: 0, discountPct: 0, cashDiscountPct: 0,
     gstRate: 12, cess: 0,
     mrp: 0, ptr: 0, pts: 0, saleRate: 0,
 });
@@ -130,12 +130,15 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
         const gstRate  = product.gstRate ?? 0;
         setItems((prev) => prev.map((item, i) => {
             if (i !== rowIndex) return item;
+            const newPkg = typeof product.packSize === 'number' && product.packSize > 0 ? product.packSize : 1;
             return {
                 ...item,
                 productId:   product.id,
                 productName: product.name,
                 isCustom:    false,
                 hsnCode:     product.hsnCode ?? item.hsnCode,
+                pkg:         newPkg,
+                packUnitLabel: product.packUnit || '',
                 gstRate,
                 mrp,
                 saleRate,
@@ -229,19 +232,21 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
 
     // ── Live totals ──────────────────────────────────────────────────────────
 
-    const goodsValue     = items.reduce((s, it) => s + it.qty * it.pkg * it.purchaseRate, 0);
-    const totalTradeDisc = items.reduce((s, it) => s + it.qty * it.pkg * it.purchaseRate * (it.discountPct / 100), 0);
+    const getEffPkg = (val: any) => typeof val === 'number' && val > 0 ? val : 1;
+
+    const goodsValue     = items.reduce((s, it) => s + it.qty * it.purchaseRate, 0);
+    const totalTradeDisc = items.reduce((s, it) => s + it.qty * it.purchaseRate * (it.discountPct / 100), 0);
     const totalCashDisc  = items.reduce((s, it) => {
-        const afterTrade = it.qty * it.pkg * it.purchaseRate * (1 - it.discountPct / 100);
+        const afterTrade = it.qty * it.purchaseRate * (1 - it.discountPct / 100);
         return s + afterTrade * (it.cashDiscountPct / 100);
     }, 0);
     const taxableValue   = goodsValue - totalTradeDisc - totalCashDisc;
     const totalGST       = items.reduce((s, it) => {
-        const base = it.qty * it.pkg * it.purchaseRate * (1 - it.discountPct / 100) * (1 - it.cashDiscountPct / 100);
+        const base = it.qty * it.purchaseRate * (1 - it.discountPct / 100) * (1 - it.cashDiscountPct / 100);
         return s + base * (it.gstRate / 100);
     }, 0);
     const totalCess      = items.reduce((s, it) => {
-        const base = it.qty * it.pkg * it.purchaseRate * (1 - it.discountPct / 100) * (1 - it.cashDiscountPct / 100);
+        const base = it.qty * it.purchaseRate * (1 - it.discountPct / 100) * (1 - it.cashDiscountPct / 100);
         return s + base * (it.cess / 100);
     }, 0);
 
@@ -258,7 +263,7 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
     const effectiveAdjustment = ledgerAdjustment * (adjustmentSign === '-' ? 1 : -1);
     const netPayable   = computedTotal - effectiveAdjustment;
 
-    const totalUnits       = items.reduce((s, it) => s + it.qty * it.pkg, 0);
+    const totalUnits       = items.reduce((s, it) => s + it.qty * getEffPkg(it.pkg), 0);
     const nearExpiryCount  = items.filter((it) => it.expiryDate && isNearExpiry(it.expiryDate)).length;
 
     // ── Submit ───────────────────────────────────────────────────────────────
@@ -286,8 +291,9 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
                 ledgerNote:        ledgerNote || undefined,
                 grandTotal:        parseFloat(netPayable.toFixed(2)),
                 items: items.map((it) => {
-                    const effQty     = it.qty * it.pkg;
-                    const base       = effQty * it.purchaseRate * (1 - it.discountPct / 100) * (1 - it.cashDiscountPct / 100);
+                    const effPkg     = typeof it.pkg === 'number' && it.pkg > 0 ? it.pkg : 1;
+                    const effQty     = it.qty * effPkg;
+                    const base       = it.qty * it.purchaseRate * (1 - it.discountPct / 100) * (1 - it.cashDiscountPct / 100);
                     const gstAmount  = base * (it.gstRate / 100);
                     const cessAmount = base * (it.cess / 100);
                     return {
@@ -297,11 +303,13 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
                         hsnCode:         it.hsnCode,
                         batchNo:         it.batchNo,
                         expiryDate:      it.expiryDate,
-                        pkg:             it.pkg,
+                        pkg:             effPkg,
                         qty:             it.qty,
-                        actualQty:       effQty,
+                        actualQty:       (it.qty + it.freeQty) * effPkg,
                         freeQty:         it.freeQty,
                         purchaseRate:    it.purchaseRate,
+                        freightPerUnit:  it.freightPerUnit,
+                        otherCostPerUnit: it.otherCostPerUnit,
                         discountPct:     it.discountPct,
                         cashDiscountPct: it.cashDiscountPct,
                         gstRate:         it.gstRate,

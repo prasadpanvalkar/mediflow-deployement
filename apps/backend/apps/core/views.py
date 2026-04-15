@@ -33,6 +33,9 @@ class OutletSettingsView(APIView):
             'enableWhatsapp': settings.enable_whatsapp,
             'whatsappApiKey': settings.whatsapp_api_key,
             'currencySymbol': settings.currency_symbol,
+            'landingCostIncludeGst': settings.landing_cost_include_gst,
+            'landingCostIncludeFreight': settings.landing_cost_include_freight,
+            'minMarginWarningPct': str(settings.min_margin_warning_pct) if settings.min_margin_warning_pct is not None else "0.00",
             'updatedAt': settings.updated_at.isoformat(),
         }
 
@@ -70,6 +73,9 @@ class OutletSettingsView(APIView):
             'enableWhatsapp': 'enable_whatsapp',
             'whatsappApiKey': 'whatsapp_api_key',
             'currencySymbol': 'currency_symbol',
+            'landingCostIncludeGst': 'landing_cost_include_gst',
+            'landingCostIncludeFreight': 'landing_cost_include_freight',
+            'minMarginWarningPct': 'min_margin_warning_pct',
         }
 
         updated_fields = []

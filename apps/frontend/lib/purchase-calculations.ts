@@ -1,6 +1,7 @@
 import { PurchaseItemFormData } from '../types';
 
 export function calculatePurchaseItem(item: {
+  pkg?: any
   qty: number
   freeQty: number
   purchaseRate: number
@@ -16,18 +17,19 @@ export function calculatePurchaseItem(item: {
   marginPct: number
   freeGoodsValue: number
 } {
-  const effectiveQty = item.qty + item.freeQty
-  const baseAmount = item.qty * item.purchaseRate
-  const discountAmount = baseAmount * (item.discountPct / 100)
-  const taxableAmount = baseAmount - discountAmount
-  const gstAmount = taxableAmount * (item.gstRate / 100)
-  const totalAmount = taxableAmount + gstAmount
+  const effPkg = typeof item.pkg === 'number' && item.pkg > 0 ? item.pkg : 1;
+  const effectiveQty = (item.qty + item.freeQty) * effPkg;
+  const baseAmount = item.qty * item.purchaseRate;
+  const discountAmount = baseAmount * (item.discountPct / 100);
+  const taxableAmount = baseAmount - discountAmount;
+  const gstAmount = taxableAmount * (item.gstRate / 100);
+  const totalAmount = taxableAmount + gstAmount;
 
   const marginPct = item.saleRate > 0
     ? ((item.saleRate - item.purchaseRate) / item.purchaseRate) * 100
-    : 0
+    : 0;
 
-  const freeGoodsValue = item.freeQty * item.purchaseRate
+  const freeGoodsValue = item.freeQty * item.purchaseRate;
 
   return {
     effectiveQty,
@@ -61,11 +63,12 @@ export function calculatePurchaseTotals(
 
   items.forEach(item => {
     const calc = calculatePurchaseItem(item);
+    const effPkg = typeof item.pkg === 'number' && item.pkg > 0 ? item.pkg : 1;
     subtotal += item.qty * item.purchaseRate;
     totalDiscount += (item.qty * item.purchaseRate) * (item.discountPct / 100);
     taxableAmount += calc.taxableAmount;
     gstAmount += calc.gstAmount;
-    totalQty += item.qty;
+    totalQty += item.qty * effPkg;
     freeGoodsValue += calc.freeGoodsValue;
   });
 
@@ -84,4 +87,19 @@ export function calculatePurchaseTotals(
     grandTotal,
     freeGoodsValue,
   };
+}
+
+export function calculateLandingRate(
+  purchaseRate: number,
+  gstRate: number,         // e.g. 12 for 12%
+  freight: number,         // per-unit freight amount
+  includeGst: boolean,     // from outlet settings
+  includeFreight: boolean, // from outlet settings
+  otherPerUnit: number = 0 // per-unit other charges — always added
+): number {
+  let base = purchaseRate;
+  if (includeGst) base += (purchaseRate * gstRate) / 100;
+  if (includeFreight) base += freight;
+  base += otherPerUnit;
+  return Math.round(base * 100) / 100;
 }

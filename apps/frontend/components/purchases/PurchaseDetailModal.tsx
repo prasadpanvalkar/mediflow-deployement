@@ -37,6 +37,12 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
     const status = getPurchaseStatus(displayInvoice);
     const cfg = STATUS_CONFIG[status];
 
+    const ledgerAdj        = Number(displayInvoice.ledgerAdjustment ?? 0);
+    const ledgerAdjDisplay = Math.abs(ledgerAdj);
+    const ledgerAdjNote    = displayInvoice.ledgerNote ?? '';
+    const hasLedgerAdj     = ledgerAdj !== 0;
+    const ledgerAdjSign    = ledgerAdj < 0 ? '+' : '−';
+
     const handlePrint = () => {
         window.print();
     };
@@ -44,9 +50,9 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="invoice-print-container max-w-4xl max-h-[90vh] overflow-y-auto p-0 print:max-h-none print:overflow-visible print:p-0 print:border-none border-t-4 border-t-primary gap-0">
-                
-                {/* ── Print Styles ── */}
-                <style dangerouslySetInnerHTML={{ __html: `
+
+                <style dangerouslySetInnerHTML={{
+                    __html: `
                     @media print {
                         @page { size: auto; margin: 0mm; }
                         body { -webkit-print-color-adjust: exact; }
@@ -62,13 +68,12 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                             transform: none !important;
                             box-shadow: none !important;
                         }
-                        .invoice-print-container .print\\:hidden, .invoice-print-container .print\\:hidden * { 
-                            display: none !important; 
+                        .invoice-print-container .print\\:hidden, .invoice-print-container .print\\:hidden * {
+                            display: none !important;
                         }
                     }
                 `}} />
 
-                {/* ── Screen-only Header ── */}
                 <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-white border-b print:hidden">
                     <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -96,10 +101,8 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                     </div>
                 </div>
 
-                {/* ── Screen UI Content ── */}
                 <div className="p-8 print:hidden bg-white">
                     <div className="grid grid-cols-2 gap-8 mb-8 text-sm">
-                        {/* Left Details */}
                         <div className="space-y-4">
                             <div>
                                 <h3 className="text-muted-foreground font-medium mb-1 text-xs uppercase tracking-wide">Distributor</h3>
@@ -124,7 +127,6 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                             </div>
                         </div>
 
-                        {/* Right Details */}
                         <div className="space-y-4">
                             <div>
                                 <h3 className="text-muted-foreground font-medium mb-1 text-xs uppercase tracking-wide">Internal Notes</h3>
@@ -156,7 +158,6 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                         </div>
                     </div>
 
-                    {/* ── Items Table ── */}
                     <div className="rounded border bg-white overflow-hidden mb-6">
                         <table className="w-full text-xs text-left">
                             <thead className="bg-muted/50 border-b">
@@ -213,7 +214,6 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                         </table>
                     </div>
 
-                    {/* ── Totals ── */}
                     <div className="flex justify-end pt-2">
                         <div className="w-72 space-y-2 text-sm">
                             <div className="flex justify-between text-muted-foreground">
@@ -238,6 +238,21 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                                     <span className="tabular-nums text-foreground font-medium">{formatINR(displayInvoice.freight)}</span>
                                 </div>
                             )}
+                            {hasLedgerAdj && (
+                                <div className="flex justify-between text-amber-700 font-medium">
+                                    <span className="flex flex-col">
+                                        Ledger Adjustment
+                                        {ledgerAdjNote && (
+                                            <span className="text-xs text-muted-foreground font-normal mt-0.5">
+                                                {ledgerAdjNote}
+                                            </span>
+                                        )}
+                                    </span>
+                                    <span className="tabular-nums">
+                                        {ledgerAdjSign}{formatINR(ledgerAdjDisplay)}
+                                    </span>
+                                </div>
+                            )}
                             <Separator className="my-2 bg-slate-200" />
                             <div className="flex justify-between items-center bg-slate-50 p-2 rounded text-base font-bold text-slate-900 border">
                                 <span>Grand Total</span>
@@ -247,10 +262,7 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                     </div>
                 </div>
 
-                {/* ── Print-Only Professional Invoice ── */}
                 <div className="hidden print:block w-full max-w-none mx-auto p-4 bg-white text-black font-sans box-border" style={{ fontFamily: 'Arial, sans-serif' }}>
-
-                    {/* PRINT LOGIC: Compute Outlet / Settings */}
                     {(() => {
                         const outletName = settings.outletName || outlet?.name || 'PHARMACY';
                         const outletAddress = settings.outletAddress || outlet?.address || '';
@@ -261,11 +273,9 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                         const outletLogoUrl = settings.outletLogoUrl || outlet?.logoUrl;
                         return (
                             <div className="bg-white text-slate-900 font-sans text-[11px] leading-tight w-full max-w-2xl print:max-w-none print:w-full mx-auto p-4 border border-slate-400 print:p-3 print:shadow-none print:border-black box-border" style={{ fontFamily: 'Arial, sans-serif' }}>
-                                
-                                {/* ── SECTION 1: OUTLET HEADER ── */}
+
                                 <div className="text-center mb-2">
                                     {outletLogoUrl && (
-                                        // eslint-disable-next-line @next/next/no-img-element
                                         <img src={outletLogoUrl} alt="Logo" className="h-12 object-contain mx-auto mb-1" />
                                     )}
                                     <h1 className="text-base font-bold uppercase tracking-wide leading-tight">
@@ -279,12 +289,11 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                                         <p className="text-[10px] text-slate-500">GSTIN: {outletGstin}</p>
                                     )}
                                 </div>
-                                
+
                                 <div className="border-t border-b border-slate-800 py-0.5 mb-2 text-center font-bold text-sm">
                                     PURCHASE INVOICE RECORD
                                 </div>
-                                
-                                {/* ── SECTION 2: DISTRIBUTOR & INVOICE INFO ── */}
+
                                 <div className="border border-slate-400 mb-2">
                                     <div className="grid grid-cols-2 gap-0">
                                         <div className="border-r border-slate-300 px-2 py-1 space-y-0.5">
@@ -315,7 +324,6 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                                     </div>
                                 </div>
 
-                                {/* ── SECTION 3: ITEMS TABLE ── */}
                                 <table className="w-full border-collapse border border-slate-400 mb-2 text-[10px]">
                                     <thead>
                                         <tr className="bg-slate-100 border-b border-slate-400">
@@ -360,7 +368,6 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                                     </tbody>
                                 </table>
 
-                                {/* ── SECTION 4: OUTSTANDING & TOTALS ── */}
                                 <div className="border border-slate-400 mb-2">
                                     <div className="grid grid-cols-2">
                                         <div className="border-r border-slate-300 px-2 py-1.5 space-y-1">
@@ -394,6 +401,16 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                                                     <span className="font-medium">{formatINR(displayInvoice.freight)}</span>
                                                 </div>
                                             )}
+                                            {hasLedgerAdj && (
+                                                <div className="flex justify-between text-amber-800">
+                                                    <span>
+                                                        Ledger Adj.{ledgerAdjNote ? ` (${ledgerAdjNote})` : ''} :
+                                                    </span>
+                                                    <span className="font-medium">
+                                                        {ledgerAdjSign}{formatINR(ledgerAdjDisplay)}
+                                                    </span>
+                                                </div>
+                                            )}
                                             <div className="flex justify-between border-t border-slate-400 mt-0.5 pt-0.5">
                                                 <span className="font-bold">Grand Total :</span>
                                                 <span className="font-bold text-[12px] text-primary">{formatINR(displayInvoice.grandTotal)}</span>
@@ -401,8 +418,7 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                                         </div>
                                     </div>
                                 </div>
-                                
-                                {/* ── SECTION 5: FOOTER ── */}
+
                                 <div className="border-t border-slate-300 pt-2 mt-2 text-center text-[10px] text-slate-500">
                                     <p>This is a computer generated purchase invoice. No signature required.</p>
                                 </div>

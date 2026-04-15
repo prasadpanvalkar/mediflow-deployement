@@ -16,6 +16,35 @@ from apps.accounts.models import Staff
 
 logger = logging.getLogger(__name__)
 
+from apps.purchases.models import PurchaseItem
+from apps.billing.utils.pricing import get_landing_cost_for_batch
+
+class BatchLandingCostView(APIView):
+    """GET /api/v1/inventory/batches/{batch_id}/landing-cost/"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, batch_id, *args, **kwargs):
+        try:
+            batch = Batch.objects.get(id=batch_id)
+        except Batch.DoesNotExist:
+            return Response({'detail': 'Batch not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        outlet_id = getattr(request.user, 'outlet_id', None) or getattr(request.user, 'pharmacy_id', None)
+
+        landing_cost = get_landing_cost_for_batch(batch, outlet_id)
+        
+        # Details like freight and gst_rate live on PurchaseItem
+        purchase_item = PurchaseItem.objects.filter(batch=batch).order_by('-created_at').first()
+        freight_per_unit = purchase_item.freight_per_unit if purchase_item else Decimal('0')
+        gst_percent = purchase_item.gst_rate if purchase_item else Decimal('0')
+
+        return Response({
+            'landing_cost': str(Decimal(landing_cost).quantize(Decimal('0.0001'))),
+            'mrp': str(batch.mrp),
+            'purchase_rate': str(batch.purchase_rate),
+            'gst_percent': str(gst_percent),
+            'freight_per_unit': str(freight_per_unit)
+        }, status=status.HTTP_200_OK)
 
 def serialize_product(product, total_stock=0, nearest_expiry="2099-12-31", is_low_stock=False, batches=None):
     return {
@@ -147,9 +176,9 @@ class ProductListView(APIView):
                     mrp=mrp,
                     default_sale_rate=sale_rate,
                 )
-        except IntegrityError:
+        except IntegrityError as e:
             return Response(
-                {'errors': {'hsnCode': f'A product with HSN code "{hsn_code}" already exists'}},
+                {'errors': {'detail': 'A database integrity error occurred (e.g. duplicate barcode).'}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -157,7 +186,11 @@ class ProductListView(APIView):
 
 
 class ProductDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method in ('PUT', 'PATCH'):
+            return [IsManagerOrAbove()]
+        return [IsAuthenticated()]
 
     def get(self, request, pk, *args, **kwargs):
         try:
@@ -165,6 +198,129 @@ class ProductDetailView(APIView):
             return Response(serialize_product(product), status=status.HTTP_200_OK)
         except MasterProduct.DoesNotExist:
             return Response({'detail': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    def put(self, request, pk, *args, **kwargs):
+        try:
+            product = MasterProduct.objects.get(id=pk)
+        except MasterProduct.DoesNotExist:
+            return Response({'detail': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        data = request.data
+        errors = {}
+
+        # --- Validate & apply fields ---
+        SCHEDULE_TO_DRUG = {
+            'OTC': 'allopathy', 'G': 'allopathy', 'H': 'allopathy', 'H1': 'allopathy',
+            'X': 'allopathy', 'C': 'allopathy', 'Narcotic': 'allopathy',
+            'Ayurvedic': 'ayurveda', 'Surgical': 'allopathy',
+            'Cosmetic': 'fmcg', 'Veterinary': 'allopathy',
+        }
+
+        if 'name' in data:
+            name = (data['name'] or '').strip()
+            if not name:
+                errors['name'] = 'Product name is required'
+            else:
+                product.name = name
+
+        if 'composition' in data:
+            product.composition = (data['composition'] or '').strip()
+
+        if 'manufacturer' in data:
+            product.manufacturer = (data['manufacturer'] or '').strip()
+
+        if 'hsnCode' in data:
+            hsn = (data['hsnCode'] or '').strip()
+            if not hsn:
+                errors['hsnCode'] = 'HSN code is required'
+            else:
+                product.hsn_code = hsn
+
+        if 'gstRate' in data:
+            try:
+                product.gst_rate = Decimal(str(data['gstRate']))
+            except (InvalidOperation, TypeError):
+                errors['gstRate'] = 'Invalid GST rate'
+
+        if 'packSize' in data:
+            try:
+                ps = int(data['packSize'])
+                if ps < 1:
+                    errors['packSize'] = 'Pack size must be ≥ 1'
+                else:
+                    product.pack_size = ps
+            except (ValueError, TypeError):
+                errors['packSize'] = 'Invalid pack size'
+
+        if 'packUnit' in data:
+            pu = (data['packUnit'] or '').strip()
+            if not pu:
+                errors['packUnit'] = 'Pack unit is required'
+            else:
+                product.pack_unit = pu
+
+        if 'packType' in data and data['packType']:
+            product.pack_type = data['packType']
+
+        if 'scheduleType' in data:
+            st = (data['scheduleType'] or 'OTC').strip()
+            product.schedule_type = st
+            product.drug_type = SCHEDULE_TO_DRUG.get(st, 'allopathy')
+
+        if 'mrp' in data:
+            try:
+                mrp = Decimal(str(data['mrp']))
+                if mrp < 0:
+                    errors['mrp'] = 'MRP cannot be negative'
+                else:
+                    product.mrp = mrp
+            except (InvalidOperation, TypeError):
+                errors['mrp'] = 'Invalid MRP'
+
+        if 'saleRate' in data:
+            try:
+                sr = Decimal(str(data['saleRate']))
+                if sr < 0:
+                    errors['saleRate'] = 'Sale rate cannot be negative'
+                else:
+                    product.default_sale_rate = sr
+            except (InvalidOperation, TypeError):
+                errors['saleRate'] = 'Invalid sale rate'
+
+        if 'minQty' in data:
+            try:
+                product.min_qty = int(data['minQty'])
+            except (ValueError, TypeError):
+                errors['minQty'] = 'Invalid min qty'
+
+        if 'reorderQty' in data:
+            try:
+                product.reorder_qty = int(data['reorderQty'])
+            except (ValueError, TypeError):
+                errors['reorderQty'] = 'Invalid reorder qty'
+
+        if 'isFridge' in data:
+            product.is_fridge = bool(data['isFridge'])
+
+        if 'isDiscontinued' in data:
+            product.is_discontinued = bool(data['isDiscontinued'])
+
+        if 'barcode' in data:
+            product.barcode = (data['barcode'] or '').strip() or None
+
+        if errors:
+            return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            product.save()
+        except IntegrityError:
+            return Response(
+                {'errors': {'barcode': 'This barcode is already used by another product.'}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        logger.info(f"MasterProduct {product.id} updated by {request.user}")
+        return Response(serialize_product(product), status=status.HTTP_200_OK)
 
 
 class ProductBatchesView(APIView):
@@ -182,7 +338,12 @@ class ProductBatchesView(APIView):
         except MasterProduct.DoesNotExist:
             return Response({'detail': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        batches = Batch.objects.filter(product=product, outlet=outlet, is_active=True).order_by('expiry_date')
+        batches = Batch.objects.filter(
+            product=product, 
+            outlet=outlet, 
+            is_active=True
+        ).exclude(qty_strips=0, qty_loose=0).order_by('expiry_date')
+        
         return Response([serialize_batch(b) for b in batches], status=status.HTTP_200_OK)
 
 

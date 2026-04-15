@@ -1,4 +1,5 @@
 'use client'
+import { useState, useEffect, useMemo } from 'react'
 
 import { ShoppingCart, X, Trash2, UserPlus, Minus, Plus } from 'lucide-react'
 import { useBillingStore } from '@/store/billingStore'
@@ -11,6 +12,9 @@ import { CustomerSelector } from './CustomerSelector'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
+import { calculateLandingRate } from '@/lib/purchase-calculations'
+import { useOutletSettings } from '@/hooks/useOutletSettings'
+
 // Inline date helper to avoid external date-fns dependency
 const diffInDays = (dateStr: string) => Math.floor((new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
 
@@ -18,6 +22,328 @@ interface BillingCartProps {
     onProceedToPayment?: () => void
     onAddDoctorDetails?: () => void
 }
+
+
+
+const CartItemRow = ({ 
+    item, 
+    index, 
+    onRateErrorChange, 
+    removeFromCart, 
+    updateCartItem, 
+    applyDiscountToItem, 
+    canViewRates 
+}: any) => {
+    const { backendRateErrors, clearBackendRateError } = useBillingStore();
+    const isExpiringSoon = diffInDays(item.expiryDate) < 90;
+    
+    const { data: settings } = useOutletSettings();
+
+    const landingRate = useMemo(() => {
+        return calculateLandingRate(
+            item.purchaseRate || 0,
+            item.gstRate || 0,
+            item.freight || 0,
+            !!settings?.landingCostIncludeGst,
+            settings?.landingCostIncludeFreight ?? true
+        );
+    }, [item.purchaseRate, item.gstRate, item.freight, settings]);
+
+    // Validation
+    const backendError = backendRateErrors[item.batchId];
+    const isWarning = item.rate < landingRate;
+    const isError = item.rate > item.mrp;
+
+    useEffect(() => {
+        onRateErrorChange(item.batchId, isError);
+    }, [isError, item.batchId]);
+
+    const displayError = backendError ? backendError : isError ? `Exceeds MRP (₹${item.mrp.toFixed(2)})` : null;
+    const displayWarning = isWarning && !isError && !backendError ? `Below landing rate (₹${landingRate.toFixed(2)})` : null;
+
+    // ── Draft state for Rate input ──────────────────────────────────────────
+    const [rateDraft, setRateDraft] = useState('');
+    const [rateFocused, setRateFocused] = useState(false);
+
+    const rateDisplay = rateFocused
+        ? rateDraft
+        : (item.rate === 0 && item.discountPct > 0 ? '' : item.rate.toFixed(2));
+
+    const commitRate = (raw: string) => {
+        const newRate = Math.max(0, parseFloat(raw) || 0);
+        const pct = item.mrp > 0 ? Math.min(100, ((item.mrp - newRate) / item.mrp) * 100) : 0;
+        applyDiscountToItem(item.batchId, Math.max(0, pct));
+        if (backendError) clearBackendRateError(item.batchId);
+    };
+
+    // ── Draft state for Qty input ───────────────────────────────────────────
+    const currentQty = item.qtyStrips > 0 ? item.qtyStrips : item.qtyLoose;
+    const [qtyDraft, setQtyDraft] = useState('');
+    const [qtyFocused, setQtyFocused] = useState(false);
+
+    const qtyDisplay = qtyFocused ? qtyDraft : String(currentQty);
+
+    const commitQty = (raw: string) => {
+        const newQty = Math.max(1, parseInt(raw) || 1);
+        const newStrips = item.qtyStrips > 0 ? newQty : 0;
+        const newLoose  = item.qtyStrips > 0 ? 0 : newQty;
+        updateCartItem(item.batchId, { qtyStrips: newStrips, qtyLoose: newLoose, totalQty: newQty });
+    };
+
+    const handleQtyStep = (delta: number) => {
+        const isLooseOnly = item.qtyStrips === 0 && item.qtyLoose > 0;
+        let newStrips = item.qtyStrips;
+        let newLoose  = item.qtyLoose;
+        let newTotal  = 0;
+        if (isLooseOnly) {
+            newLoose = Math.max(1, item.qtyLoose + delta);
+            newTotal = newLoose / item.packSize;
+        } else {
+            newStrips = Math.max(1, item.qtyStrips + delta);
+            newTotal  = newStrips;
+        }
+        updateCartItem(item.batchId, { qtyStrips: newStrips, qtyLoose: newLoose, totalQty: newTotal });
+        if (backendError) clearBackendRateError(item.batchId);
+    };
+
+    // shared no-spinner class
+    const noSpin = '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
+
+    return (
+        <div data-testid={`cart-item-${index}`} className={cn("px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors group", displayWarning && !displayError ? "bg-amber-50/30" : "")}>
+            <div className="flex justify-between items-start gap-2">
+                <div className="text-sm font-semibold text-slate-900 leading-tight">
+                    {item.name}
+                    <span className="text-xs font-normal text-muted-foreground ml-1.5 block sm:inline">
+                        {item.packSize} {item.packUnit}s
+                    </span>
+                </div>
+                <button
+                    data-testid={`remove-item-${index}`}
+                    onClick={() => {
+                        removeFromCart(item.batchId);
+                        onRateErrorChange(item.batchId, false);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all p-1 -mr-1"
+                >
+                    <Trash2 className="w-4 h-4" />
+                </button>
+            </div>
+
+            <div className="flex items-center justify-between mt-1">
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Batch: {item.batchNo}</span>
+                    <span className={cn("text-[10px] px-1.5 py-0.5 rounded border", isExpiringSoon ? "text-red-600 bg-red-50 border-red-200" : "text-muted-foreground border-slate-200")}>
+                        Exp: {new Date(item.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                    </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    {canViewRates && (
+                        <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded px-1.5 py-0.5 text-[10px] leading-none shrink-0" title={`Per Unit Cost: ₹${item.purchaseRate || 0}`}>
+                            <span className="text-emerald-700 font-semibold whitespace-nowrap">PR: ₹{item.purchaseRate || 0}</span>
+                            <span className="w-[1px] h-2 bg-emerald-200/60" />
+                            <span className="text-emerald-600 whitespace-nowrap font-medium">Mrg: ₹{(((item.rate - (item.purchaseRate || 0)) * item.totalQty).toFixed(2))}</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="flex items-end justify-between mt-2.5">
+                {/* ── Qty stepper ── */}
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-0.5">
+                        <button
+                            onClick={() => handleQtyStep(-1)}
+                            className="w-7 h-7 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-95"
+                        >
+                            <Minus className="w-3 h-3" />
+                        </button>
+                        <input
+                            data-testid={`qty-strips-${index}`}
+                            inputMode="numeric"
+                            value={qtyDisplay}
+                            className={`w-10 h-7 text-center text-sm font-medium border-y border-slate-200 bg-white focus:outline-none ${noSpin}`}
+                            onFocus={(e) => {
+                                setQtyFocused(true);
+                                setQtyDraft(String(currentQty));
+                                e.target.select();
+                            }}
+                            onChange={(e) => setQtyDraft(e.target.value)}
+                            onBlur={() => {
+                                setQtyFocused(false);
+                                commitQty(qtyDraft);
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') { commitQty(qtyDraft); (e.target as HTMLInputElement).blur(); }
+                                if (e.key === 'ArrowUp')   { e.preventDefault(); handleQtyStep(1); }
+                                if (e.key === 'ArrowDown') { e.preventDefault(); handleQtyStep(-1); }
+                            }}
+                        />
+                        <button
+                            onClick={() => handleQtyStep(1)}
+                            className="w-7 h-7 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-95"
+                        >
+                            <Plus className="w-3 h-3" />
+                        </button>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
+                        {item.qtyStrips > 0 ? 'Strips' : 'Loose'}
+                    </span>
+                </div>
+
+                {/* ── Rate input ── */}
+                <div className="flex flex-col items-end gap-1.5">
+                    <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-muted-foreground">Rate ₹</span>
+                        <input
+                            inputMode="decimal"
+                            placeholder={item.mrp.toFixed(2)}
+                            value={rateDisplay}
+                            className={cn(
+                                `w-20 h-7 text-center text-xs border rounded px-1 focus:outline-none focus:ring-1 ${noSpin}`,
+                                displayError
+                                    ? 'border-red-500 focus:border-red-500 focus:ring-red-200 bg-red-50 text-red-900'
+                                    : displayWarning
+                                    ? 'border-amber-400 focus:border-amber-500 focus:ring-amber-200 bg-amber-50 text-amber-900'
+                                    : 'border-slate-200 focus:border-primary/50 focus:ring-primary/20'
+                            )}
+                            onFocus={(e) => {
+                                setRateFocused(true);
+                                setRateDraft(item.rate > 0 ? item.rate.toFixed(2) : '');
+                                e.target.select();
+                            }}
+                            onChange={(e) => setRateDraft(e.target.value)}
+                            onBlur={() => {
+                                setRateFocused(false);
+                                commitRate(rateDraft);
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') { commitRate(rateDraft); (e.target as HTMLInputElement).blur(); }
+                                if (e.key === 'Escape') { setRateDraft(''); setRateFocused(false); }
+                            }}
+                        />
+                    </div>
+                    {/* Rate hint */}
+                    {displayError ? (
+                        <div className="text-[10px] text-red-600 font-medium whitespace-nowrap">✗ {displayError}</div>
+                    ) : displayWarning ? (
+                        <div className="text-[10px] text-amber-600 font-medium whitespace-nowrap">⚠ {displayWarning}</div>
+                    ) : (
+                        <div className="text-[9px] text-muted-foreground whitespace-nowrap">
+                            Floor ₹{landingRate.toFixed(2)} · MRP ₹{item.mrp.toFixed(2)}
+                        </div>
+                    )}
+
+                    <div data-testid={`line-total-${index}`} className="text-sm font-bold text-slate-900 mt-1">
+                        ₹{(item.rate * item.totalQty).toFixed(2)}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// ── ExtraDiscountRow ─────────────────────────────────────────────────────────
+// Uses LOCAL string state so typing is never interrupted.
+// Only commits to the Zustand store on blur / Enter.
+function ExtraDiscountRow({
+    extraDiscountPct,
+    setExtraDiscountPct,
+    base,
+    extraDiscountAmount,
+}: {
+    extraDiscountPct: number;
+    setExtraDiscountPct: (pct: number) => void;
+    base: number;               // subtotal after item discounts
+    extraDiscountAmount: number; // computed by store
+}) {
+    const [pctDraft, setPctDraft] = useState<string>('');
+    const [amtDraft, setAmtDraft] = useState<string>('');
+    const [pctFocused, setPctFocused] = useState(false);
+    const [amtFocused, setAmtFocused] = useState(false);
+
+    // When an input is NOT focused, always sync visible value from store
+    const pctDisplay = pctFocused ? pctDraft : extraDiscountPct === 0 ? '' : String(extraDiscountPct);
+    const amtDisplay = amtFocused ? amtDraft : extraDiscountAmount === 0 ? '' : extraDiscountAmount.toFixed(2);
+
+    const commitPct = (raw: string) => {
+        const v = Math.min(100, Math.max(0, parseFloat(raw) || 0));
+        setExtraDiscountPct(v);
+    };
+
+    const commitAmt = (raw: string) => {
+        const v = Math.max(0, parseFloat(raw) || 0);
+        const pct = base > 0 ? Math.min(100, (v / base) * 100) : 0;
+        setExtraDiscountPct(pct);
+    };
+
+    const inputClass =
+        'w-16 h-7 text-center text-xs border border-slate-200 rounded px-1 ' +
+        'focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 ' +
+        '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
+
+    return (
+        <div className="flex items-center justify-between text-slate-500">
+            <span>Extra Discount</span>
+            <div className="flex items-center gap-1.5">
+                {/* ── % input ── */}
+                <div className="relative flex items-center">
+                    <input
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={pctDisplay}
+                        className={inputClass + ' w-14 pr-4'}
+                        onFocus={(e) => {
+                            setPctFocused(true);
+                            setPctDraft(extraDiscountPct === 0 ? '' : String(extraDiscountPct));
+                            e.target.select();
+                        }}
+                        onChange={(e) => setPctDraft(e.target.value)}
+                        onBlur={() => {
+                            setPctFocused(false);
+                            commitPct(pctDraft);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') { commitPct(pctDraft); (e.target as HTMLInputElement).blur(); }
+                            if (e.key === 'Escape') { setPctDraft(''); setPctFocused(false); }
+                        }}
+                    />
+                    <span className="absolute right-1.5 text-[10px] text-slate-400 pointer-events-none select-none">%</span>
+                </div>
+
+                <span className="text-xs text-slate-400">|</span>
+
+                {/* ── ₹ input ── */}
+                <div className="relative flex items-center">
+                    <span className="absolute left-1.5 text-[10px] text-slate-400 pointer-events-none select-none">₹</span>
+                    <input
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        value={amtDisplay}
+                        className={inputClass + ' w-20 pl-4'}
+                        onFocus={(e) => {
+                            setAmtFocused(true);
+                            setAmtDraft(extraDiscountAmount === 0 ? '' : extraDiscountAmount.toFixed(2));
+                            e.target.select();
+                        }}
+                        onChange={(e) => setAmtDraft(e.target.value)}
+                        onBlur={() => {
+                            setAmtFocused(false);
+                            commitAmt(amtDraft);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') { commitAmt(amtDraft); (e.target as HTMLInputElement).blur(); }
+                            if (e.key === 'Escape') { setAmtDraft(''); setAmtFocused(false); }
+                        }}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function BillingCart({ onProceedToPayment, onAddDoctorDetails }: BillingCartProps = {}) {
     const {
@@ -43,6 +369,8 @@ export function BillingCart({ onProceedToPayment, onAddDoctorDetails }: BillingC
         : (user?.canViewPurchaseRates ?? false)
 
     const totals = getTotals()
+    const [rateErrors, setRateErrors] = useState<Record<string, boolean>>({});
+    const hasRateError = Object.values(rateErrors).some(Boolean);
     const totalCost = canViewRates
         ? cart.reduce((sum, item) => sum + (item.purchaseRate ?? 0) * item.totalQty, 0)
         : 0
@@ -117,135 +445,18 @@ export function BillingCart({ onProceedToPayment, onAddDoctorDetails }: BillingC
                     </div>
                 ) : (
                     <div className="pb-4">
-                        {cart.map((item, index) => {
-                            const isExpiringSoon = diffInDays(item.expiryDate) < 90
-
-                            return (
-                                <div key={item.batchId} data-testid={`cart-item-${index}`} className="px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors group">
-                                    {/* Row 1 */}
-                                    <div className="flex justify-between items-start gap-2">
-                                        <div className="text-sm font-semibold text-slate-900 leading-tight">
-                                            {item.name}
-                                            <span className="text-xs font-normal text-muted-foreground ml-1.5 block sm:inline">
-                                                {item.packSize} {item.packUnit}s
-                                            </span>
-                                        </div>
-                                        <button
-                                            data-testid={`remove-item-${index}`}
-                                            onClick={() => removeFromCart(item.batchId)}
-                                            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all p-1 -mr-1"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </div>
-
-                                    {/* Row 2 */}
-                                    <div className="flex items-center justify-between mt-1">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xs text-muted-foreground">Batch: {item.batchNo}</span>
-                                            <span className={cn("text-[10px] px-1.5 py-0.5 rounded border", isExpiringSoon ? "text-red-600 bg-red-50 border-red-200" : "text-muted-foreground border-slate-200")}>
-                                                Exp: {new Date(item.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center gap-1.5">
-                                            {canViewRates && (
-                                                <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded px-1.5 py-0.5 text-[10px] leading-none shrink-0" title={`Per Unit Cost: ${formatCurrency(item.purchaseRate || 0)}\nTotal Row Margin: ${formatCurrency(((item.mrp * (1 - item.discountPct / 100)) * item.totalQty) - ((item.purchaseRate || 0) * item.totalQty))}`}>
-                                                    <span className="text-emerald-700 font-semibold whitespace-nowrap">PR: {formatCurrency(item.purchaseRate || 0)}</span>
-                                                    <span className="w-[1px] h-2 bg-emerald-200/60" />
-                                                    <span className="text-emerald-600 whitespace-nowrap font-medium">Mrg: {formatCurrency(((item.mrp * (1 - item.discountPct / 100)) * item.totalQty) - ((item.purchaseRate || 0) * item.totalQty))}</span>
-                                                </div>
-                                            )}
-                                            {SCHEDULE_MARKERS[item.scheduleType] && (
-                                                <span className={cn("text-[10px] font-semibold px-1 rounded border", ['H1', 'X', 'C', 'Narcotic'].includes(item.scheduleType) ? "bg-red-50 text-red-600 border-red-200" : "bg-amber-50 text-amber-600 border-amber-200")}>
-                                                    {SCHEDULE_MARKERS[item.scheduleType]}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Row 3 */}
-                                    <div className="flex items-end justify-between mt-2.5">
-                                        <div className="flex flex-col gap-1">
-                                            <div className="flex items-center gap-0.5">
-                                                <button 
-                                                    onClick={() => handleQtyChange(item.batchId, item.totalQty, item.packSize, -1, item.qtyStrips, item.qtyLoose)}
-                                                    className="w-7 h-7 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-95"
-                                                >
-                                                    <Minus className="w-3 h-3" />
-                                                </button>
-                                                <input
-                                                    data-testid={`qty-strips-${index}`}
-                                                    type="number"
-                                                    min={1}
-                                                    value={item.qtyStrips > 0 ? item.qtyStrips : item.qtyLoose}
-                                                    onChange={(e) => {
-                                                        const newQty = Math.max(1, parseInt(e.target.value) || 1)
-                                                        const newStrips = item.qtyStrips > 0 ? newQty : 0
-                                                        const newLoose = item.qtyStrips > 0 ? 0 : newQty
-                                                        updateCartItem(item.batchId, {
-                                                            qtyStrips: newStrips,
-                                                            qtyLoose: newLoose,
-                                                            totalQty: newQty
-                                                        })
-                                                    }}
-                                                    className="w-10 h-7 text-center text-sm font-medium border-y border-slate-200 bg-white focus:outline-none"
-                                                />
-                                                <button 
-                                                    onClick={() => handleQtyChange(item.batchId, item.totalQty, item.packSize, 1, item.qtyStrips, item.qtyLoose)}
-                                                    className="w-7 h-7 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-95"
-                                                >
-                                                    <Plus className="w-3 h-3" />
-                                                </button>
-                                            </div>
-                                            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
-                                                {item.qtyStrips > 0 ? 'Strips' : 'Loose'}
-                                            </span>
-                                            {item.qtyStrips === 0 && item.qtyLoose >= item.packSize && (
-                                                <span className="text-[10px] text-slate-400">
-                                                    = {formatQty(0, item.qtyLoose, item.packSize)}
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        <div className="flex flex-col items-end gap-1.5">
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-[10px] text-muted-foreground">Disc</span>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="100"
-                                                    step="0.01"
-                                                    value={item.discountPct.toFixed(2)}
-                                                    onChange={(e) => {
-                                                        const pct = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
-                                                        applyDiscountToItem(item.batchId, pct);
-                                                    }}
-                                                    className="w-16 h-7 text-center text-xs border border-slate-200 rounded px-1 focus:outline-none focus:border-primary/50"
-                                                />
-                                                <span className="text-[10px] text-muted-foreground">%</span>
-                                                <span className="text-[10px] text-muted-foreground">₹</span>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    step="0.01"
-                                                    value={(item.mrp * item.discountPct / 100 * item.totalQty).toFixed(2)}
-                                                    onChange={(e) => {
-                                                        const discAmt = Math.max(0, parseFloat(e.target.value) || 0);
-                                                        const base = item.mrp * item.totalQty;
-                                                        const pct = base > 0 ? Math.min(100, (discAmt / base) * 100) : 0;
-                                                        applyDiscountToItem(item.batchId, pct);
-                                                    }}
-                                                    className="w-20 h-7 text-center text-xs border border-slate-200 rounded px-1 focus:outline-none focus:border-primary/50"
-                                                />
-                                            </div>
-                                            <div data-testid={`line-total-${index}`} className="text-sm font-bold text-slate-900">
-                                                {formatCurrency((item.mrp * (1 - item.discountPct / 100)) * item.totalQty)}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )
-                        })}
+                        {cart.map((item, index) => (
+                            <CartItemRow 
+                                key={item.batchId} 
+                                item={item} 
+                                index={index}
+                                onRateErrorChange={(batchId: string, has: boolean) => setRateErrors(p => ({...p, [batchId]: has}))}
+                                removeFromCart={removeFromCart}
+                                updateCartItem={updateCartItem}
+                                applyDiscountToItem={applyDiscountToItem}
+                                canViewRates={canViewRates}
+                            />
+                        ))}
                         
                         <ScheduleHAlert 
                             hasScheduleH={totals.hasScheduleH} 
@@ -269,38 +480,12 @@ export function BillingCart({ onProceedToPayment, onAddDoctorDetails }: BillingC
                             <span>-{formatCurrency(totals.discountAmount)}</span>
                         </div>
                     )}
-                    <div className="flex items-center justify-between text-slate-500">
-                        <span>Extra Discount</span>
-                        <div className="flex items-center gap-1">
-                            <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="0.01"
-                                value={extraDiscountPct.toFixed(2)}
-                                onChange={(e) => {
-                                    const pct = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
-                                    setExtraDiscountPct(pct);
-                                }}
-                                className="w-16 h-7 text-center text-xs border border-slate-200 rounded px-1 focus:outline-none focus:border-primary/50"
-                            />
-                            <span className="text-xs text-slate-500">%</span>
-                            <span className="text-xs text-slate-500">₹</span>
-                            <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={totals.extraDiscountAmount.toFixed(2)}
-                                onChange={(e) => {
-                                    const discAmt = Math.max(0, parseFloat(e.target.value) || 0);
-                                    const base = totals.subtotal - totals.discountAmount;
-                                    const pct = base > 0 ? Math.min(100, (discAmt / base) * 100) : 0;
-                                    setExtraDiscountPct(pct);
-                                }}
-                                className="w-20 h-7 text-center text-xs border border-slate-200 rounded px-1 focus:outline-none focus:border-primary/50"
-                            />
-                        </div>
-                    </div>
+                    <ExtraDiscountRow
+                        extraDiscountPct={extraDiscountPct}
+                        setExtraDiscountPct={setExtraDiscountPct}
+                        base={totals.subtotal - totals.discountAmount}
+                        extraDiscountAmount={totals.extraDiscountAmount}
+                    />
                     <div className="flex justify-between text-slate-600 pt-1.5 border-t border-slate-200/60 mt-1.5">
                         <span>Taxable Amount</span>
                         <span>{formatCurrency(totals.taxableAmount)}</span>
@@ -342,7 +527,8 @@ export function BillingCart({ onProceedToPayment, onAddDoctorDetails }: BillingC
                     <button
                         data-testid="save-bill-btn"
                         onClick={onProceedToPayment}
-                        disabled={cart.length === 0 || !isPinVerified}
+                        disabled={cart.length === 0 || !isPinVerified || hasRateError}
+                        title={hasRateError ? "Fix pricing errors to continue" : ""}
                         className="w-full h-12 bg-primary text-white rounded-xl font-semibold text-base flex justify-between items-center px-5 transition-transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700"
                     >
                         <span>Proceed to Payment</span>

@@ -81,6 +81,7 @@ export function ExpiryTable({ onAdjustClick }: any) {
                                     else if (daysRemaining <= 30) daysBadge = "bg-red-100 text-red-700";
                                     else if (daysRemaining <= 60) daysBadge = "bg-amber-100 text-amber-700";
                                     else daysBadge = "bg-yellow-100 text-yellow-700";
+                                    const packType = product.packType ? `${product.packType}s` : 'units';
 
                                     return (
                                         <TableRow key={`${batch.id}-${idx}`} className="hover:bg-slate-50 transition-colors">
@@ -101,7 +102,7 @@ export function ExpiryTable({ onAdjustClick }: any) {
                                                   </div>
                                              </TableCell>
                                              <TableCell className="text-right">
-                                                  <div className="text-sm font-semibold">{batch.qtyStrips} strips</div>
+                                                  <div className="text-sm font-semibold">{batch.qtyStrips} {packType}</div>
                                                   {batch.qtyLoose > 0 && <div className="text-xs text-muted-foreground">+{batch.qtyLoose} loose</div>}
                                                   <div className="text-xs text-slate-500 mt-1">{formatCurrency(batch.qtyStrips * batch.purchaseRate)}</div>
                                              </TableCell>

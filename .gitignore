@@ -26,3 +26,6 @@ redis_data/
 .DS_Store
 .vscode/
 *.swp
+.venv/
+apps/frontend/playwright-report/
+apps/frontend/test-results/

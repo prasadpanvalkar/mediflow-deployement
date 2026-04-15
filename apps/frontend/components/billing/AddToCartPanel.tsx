@@ -21,11 +21,17 @@ interface AddToCartPanelProps {
 export function AddToCartPanel({ product, onAdd, onClose, maxDiscount }: AddToCartPanelProps) {
     const { user } = useAuthStore()
     const canViewRates = user?.canViewPurchaseRates ?? false
-    const defaultBatch = product.batches.length > 0 
-        ? [...product.batches].sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0]
+    const availableBatches = useMemo(() => 
+        product.batches.filter(b => b.qtyStrips > 0 || b.qtyLoose > 0),
+        [product.batches]
+    )
+
+    const defaultBatch = availableBatches.length > 0 
+        ? [...availableBatches].sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0]
         : null
 
     const [selectedBatchId, setSelectedBatchId] = useState<string>(defaultBatch?.id ?? '')
+
     const [saleMode, setSaleMode] = useState<'strip' | 'loose'>('strip')
     const [qtyStrips, setQtyStrips] = useState<number>(1)
     const [qtyLoose, setQtyLoose] = useState<number>(0)
@@ -38,8 +44,8 @@ export function AddToCartPanel({ product, onAdd, onClose, maxDiscount }: AddToCa
 
     // Reset state when product changes
     useEffect(() => {
-        const fifoBatch = product.batches.length > 0 
-            ? [...product.batches].sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0]
+        const fifoBatch = availableBatches.length > 0 
+            ? [...availableBatches].sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0]
             : null
         
         setSelectedBatchId(fifoBatch?.id ?? '')
@@ -54,7 +60,7 @@ export function AddToCartPanel({ product, onAdd, onClose, maxDiscount }: AddToCa
     }, [product, maxDiscount])
 
     const selectedBatch = useMemo(() => 
-        product.batches.find(b => b.id === selectedBatchId), [product.batches, selectedBatchId])
+        availableBatches.find(b => b.id === selectedBatchId), [availableBatches, selectedBatchId])
 
     const handleDiscountChange = (val: string) => {
         let num = parseFloat(val)
@@ -183,45 +189,51 @@ export function AddToCartPanel({ product, onAdd, onClose, maxDiscount }: AddToCa
             {/* Batch Selector */}
             <div className="mb-4">
                 <label className="text-sm font-medium text-slate-700 mb-2 block">Select Batch</label>
-                <div className="space-y-2">
-                    {product.batches.map(batch => {
-                        const daysToExpiry = diffInDays(batch.expiryDate)
-                        const isExpiringSoon = daysToExpiry < 90
-                        
-                        return (
-                            <label 
-                                key={batch.id} 
-                                className={cn(
-                                    "flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-colors text-sm",
-                                    selectedBatchId === batch.id ? "bg-primary/5 border-primary" : "hover:bg-slate-50 border-slate-200"
-                                )}
-                            >
-                                <div className="flex items-center gap-3">
-                                    <input 
-                                        type="radio" 
-                                        name="batch" 
-                                        value={batch.id}
-                                        checked={selectedBatchId === batch.id}
-                                        onChange={() => setSelectedBatchId(batch.id)}
-                                        className="text-primary focus:ring-primary h-4 w-4"
-                                    />
-                                    <div>
-                                        <div className="font-medium">{batch.batchNo}</div>
-                                        <div className={cn("text-xs mt-0.5", isExpiringSoon ? "text-red-600 font-medium" : "text-muted-foreground")}>
-                                            Exp: {new Date(batch.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                {availableBatches.length === 0 ? (
+                    <div className="p-4 bg-amber-50 text-amber-800 text-sm border border-amber-200 rounded-lg">
+                        No stock available for this product.
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {availableBatches.map(batch => {
+                            const daysToExpiry = diffInDays(batch.expiryDate)
+                            const isExpiringSoon = daysToExpiry < 90
+                            
+                            return (
+                                <label 
+                                    key={batch.id} 
+                                    className={cn(
+                                        "flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-colors text-sm",
+                                        selectedBatchId === batch.id ? "bg-primary/5 border-primary" : "hover:bg-slate-50 border-slate-200"
+                                    )}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <input 
+                                            type="radio" 
+                                            name="batch" 
+                                            value={batch.id}
+                                            checked={selectedBatchId === batch.id}
+                                            onChange={() => setSelectedBatchId(batch.id)}
+                                            className="text-primary focus:ring-primary h-4 w-4"
+                                        />
+                                        <div>
+                                            <div className="font-medium">{batch.batchNo}</div>
+                                            <div className={cn("text-xs mt-0.5", isExpiringSoon ? "text-red-600 font-medium" : "text-muted-foreground")}>
+                                                Exp: {new Date(batch.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div className="text-right">
-                                    <div className="font-semibold">{formatCurrency(batch.mrp)}</div>
-                                    <div className="text-xs text-muted-foreground">
-                                        Stk: {batch.qtyStrips} (S) / {batch.qtyLoose} (L)
+                                    <div className="text-right">
+                                        <div className="font-semibold">{formatCurrency(batch.mrp)}</div>
+                                        <div className="text-xs text-muted-foreground">
+                                            Stk: {batch.qtyStrips} (S) / {batch.qtyLoose} (L)
+                                        </div>
                                     </div>
-                                </div>
-                            </label>
-                        )
-                    })}
-                </div>
+                                </label>
+                            )
+                        })}
+                    </div>
+                )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">

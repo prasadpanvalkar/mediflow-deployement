@@ -131,6 +131,7 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
             freight=Decimal(str(payload.get('freight', 0))),
             round_off=Decimal(str(payload.get('roundOff', 0))),
             ledger_adjustment=Decimal(str(payload.get('ledgerAdjustment', 0))),
+            ledger_note=payload.get('ledgerNote') or None,
             grand_total=grand_total,
             amount_paid=grand_total if purchase_type == 'cash' else Decimal('0'),
             outstanding=Decimal('0') if purchase_type == 'cash' else grand_total,
@@ -183,13 +184,27 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
                     )
             batch_key = (batch_no, expiry_date)
 
+            # ─── QUANTITY UNIT CONTRACT ─────────────────────────────────────────────
+            # item_payload['qty']       = strips/packs purchased (e.g. 10)
+            # item_payload['freeQty']   = free strips/packs (e.g. 2)
+            # item_payload['actualQty'] = total loose units = (qty+freeQty) * pack_size
+            #                             Saved to PurchaseItem.actual_qty for audit ONLY.
+            #                             NEVER use actualQty for Batch.qty_strips.
+            #
+            # Batch.qty_strips must always be in STRIPS, never in loose units.
+            # total_stock property handles the strips → units conversion on read.
+            # ────────────────────────────────────────────────────────────────────────
+            
+            # Calculate total strips purchased including free goods
+            total_strips = int(item_payload['qty']) + int(item_payload.get('freeQty', 0))
+
             # Check if batch already exists in this transaction (batch_cache)
             if batch_key in batch_cache:
                 batch = batch_cache[batch_key]
                 # Merge: add qty_strips to existing batch
-                batch.qty_strips += int(item_payload['actualQty'])
+                batch.qty_strips += total_strips
                 batch.save(update_fields=['qty_strips'])
-                logger.info(f"Merged batch {batch_no} (merged qty_strips to {batch.qty_strips})")
+                logger.info(f"Merged batch {batch_no}, added {total_strips} strips, total={batch.qty_strips}")
             else:
                 # Check if batch exists in inventory for this outlet
                 try:
@@ -200,9 +215,9 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
                         product=master_product
                     )
                     # Merge: add to existing batch
-                    batch.qty_strips += int(item_payload['actualQty'])
+                    batch.qty_strips += total_strips
                     batch.save(update_fields=['qty_strips'])
-                    logger.info(f"Merged existing batch {batch_no} (qty_strips now {batch.qty_strips})")
+                    logger.info(f"Merged batch {batch_no}, added {total_strips} strips, total={batch.qty_strips}")
                 except Batch.DoesNotExist:
                     # Create new batch
                     batch = Batch.objects.create(
@@ -213,11 +228,11 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
                         mrp=Decimal(str(item_payload['mrp'])),
                         purchase_rate=Decimal(str(item_payload['purchaseRate'])),
                         sale_rate=Decimal(str(item_payload['saleRate'])),
-                        qty_strips=int(item_payload['actualQty']),
+                        qty_strips=total_strips,
                         qty_loose=0,
                         rack_location='',
                     )
-                    logger.info(f"Created new batch {batch_no} with qty_strips={batch.qty_strips}")
+                    logger.info(f"Created new batch {batch_no} with qty_strips={total_strips} strips")
 
                 # Cache the batch for potential merging in this transaction
                 batch_cache[batch_key] = batch
@@ -232,7 +247,7 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
                 hsn_code=item_payload.get('hsnCode'),
                 batch_no=batch_no,
                 expiry_date=expiry_date,
-                pkg=int(item_payload['pkg']),
+                pkg=(master_product.pack_size if master_product and master_product.pack_size else int(item_payload.get('pkg') or 1)) or 1,
                 qty=int(item_payload['qty']),
                 actual_qty=int(item_payload['actualQty']),
                 free_qty=int(item_payload.get('freeQty', 0)),

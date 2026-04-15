@@ -59,6 +59,7 @@ export function LowStockTable({ onReorderClick }: any) {
                                     // Assume reorder level is 10 for all items in mock unless specified
                                     const reorderLevel = 10;
                                     const qty = product.totalStock;
+                                    const packType = product.packType ? `${product.packType}s` : 'units';
                                     const shortage = Math.max(0, reorderLevel - qty);
                                     const fillPct = Math.min(100, (qty / reorderLevel) * 100);
 
@@ -69,11 +70,11 @@ export function LowStockTable({ onReorderClick }: any) {
                                                   <div className="text-xs text-muted-foreground truncate">{product.composition}</div>
                                              </TableCell>
                                              <TableCell>
-                                                  <div className="text-xl font-bold text-red-600">{qty} strips</div>
+                                                  <div className="text-xl font-bold text-red-600">{qty} {packType}</div>
                                                   <Progress value={fillPct} className="h-1.5 mt-2 bg-slate-100" />
                                              </TableCell>
                                              <TableCell>
-                                                  <div className="text-amber-600 font-medium">{reorderLevel} strips</div>
+                                                  <div className="text-amber-600 font-medium">{reorderLevel} {packType}</div>
                                              </TableCell>
                                              <TableCell>
                                                   <div className="text-red-600 font-semibold">Need {shortage} more</div>

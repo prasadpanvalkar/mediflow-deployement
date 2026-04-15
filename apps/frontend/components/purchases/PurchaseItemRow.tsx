@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { PurchaseItemFormData, ProductSearchResult } from '@/types';
 import { productsApi } from '@/lib/apiClient';
+import { useOutletSettings } from '@/hooks/useOutletSettings';
+import { calculateLandingRate } from '@/lib/purchase-calculations';
 
 interface ItemFieldError { message?: string; }
 
@@ -35,8 +37,7 @@ const getExpiryStatus = (exp: string): ExpiryStatus => {
 };
 
 const computeTotal = (v: PurchaseItemFormData): number => {
-    const effQty         = v.qty * v.pkg;
-    const afterTradeDisc = effQty * v.purchaseRate * (1 - v.discountPct / 100);
+    const afterTradeDisc = v.qty * v.purchaseRate * (1 - v.discountPct / 100);
     const afterCashDisc  = afterTradeDisc * (1 - v.cashDiscountPct / 100);
     return afterCashDisc * (1 + v.gstRate / 100 + v.cess / 100);
 };
@@ -107,6 +108,23 @@ export function PurchaseItemRow({
     const wrapperRef                      = useRef<HTMLDivElement>(null);
     const inputRef                        = useRef<HTMLInputElement>(null);
     const portalRef                       = useRef<HTMLDivElement>(null);
+
+    const { data: settings } = useOutletSettings();
+    const landingRate = calculateLandingRate(
+        value.purchaseRate || 0,
+        value.gstRate || 0,
+        value.freightPerUnit || 0,
+        !!settings?.landingCostIncludeGst,
+        settings?.landingCostIncludeFreight ?? true,
+        value.otherCostPerUnit || 0
+    );
+    
+    // Auto-fill saleRate when landingRate is calculated and saleRate is empty
+    useEffect(() => {
+        if (landingRate > 0 && !value.saleRate) {
+            onChange(index, 'saleRate', landingRate);
+        }
+    }, [landingRate, value.saleRate]);
 
     // Helper to calculate dropdown position (viewport-relative for position:fixed)
     const openDropdown = () => {
@@ -202,6 +220,7 @@ export function PurchaseItemRow({
     const expStatus = getExpiryStatus(value.expiryDate);
     const total     = computeTotal(value);
     const rowBg     = index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30';
+    const effPkg    = typeof value.pkg === 'number' && value.pkg > 0 ? value.pkg : 1;
 
     const handleMrpChange = (raw: string) => {
         const mrp = parseFloat(raw) || 0;
@@ -399,12 +418,14 @@ export function PurchaseItemRow({
 
                 {/* Pkg */}
                 <td className={td}>
-                    <input
-                        type="number" min={1}
-                        className={cellInputCls(false, 'right')}
-                        value={value.pkg || ''}
-                        onChange={(e) => num('pkg', e.target.value)}
-                    />
+                    <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-100 rounded py-0.5">
+                        <span className="font-medium text-slate-700 text-xs">{value.pkg || 1}</span>
+                        {value.packUnitLabel && (
+                            <span className="text-[9px] text-slate-400 whitespace-nowrap leading-none mt-0.5">
+                                {value.packUnitLabel}/pkg
+                            </span>
+                        )}
+                    </div>
                 </td>
 
                 {/* Qty */}
@@ -415,9 +436,9 @@ export function PurchaseItemRow({
                         value={value.qty || ''}
                         onChange={(e) => num('qty', e.target.value)}
                     />
-                    {value.pkg > 1 && value.qty > 0 && (
+                    {effPkg > 1 && value.qty > 0 && (
                         <p className="mt-0.5 text-right text-[10px] leading-none text-slate-400">
-                            ={value.pkg * value.qty}u
+                            ={effPkg * value.qty}u
                         </p>
                     )}
                 </td>
@@ -536,6 +557,8 @@ export function PurchaseItemRow({
                                 { label: 'Cess%',      field: 'cess'            as const, width: 'w-12' },
                                 { label: 'PTR ₹',     field: 'ptr'             as const, width: 'w-20' },
                                 { label: 'PTS ₹',     field: 'pts'             as const, width: 'w-20' },
+                                { label: 'Freight/Unit ₹', field: 'freightPerUnit' as const, width: 'w-20' },
+                                { label: 'Other/Unit ₹',   field: 'otherCostPerUnit' as const, width: 'w-20' },
                             ].map(({ label, field, width }) => (
                                 <div key={field} className="flex items-center gap-1.5">
                                     <label className="whitespace-nowrap text-[11px] text-slate-500">
@@ -553,6 +576,13 @@ export function PurchaseItemRow({
                                     />
                                 </div>
                             ))}
+
+                            <div className="flex items-center gap-1.5 ml-auto border-l border-blue-200 pl-4">
+                                <span className="text-[11px] text-slate-500 font-medium whitespace-nowrap">Landing Cost Floor:</span>
+                                <span className="text-xs font-bold text-slate-700 whitespace-nowrap">
+                                    ₹{landingRate.toFixed(2)}
+                                </span>
+                            </div>
                         </div>
                     </td>
                     <td colSpan={4} />

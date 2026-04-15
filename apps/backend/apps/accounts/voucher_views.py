@@ -236,6 +236,8 @@ class LedgerStatementView(APIView):
                 'description': line.description or line.voucher.narration,
                 'debit': float(line.debit),
                 'credit': float(line.credit),
+                'sourceType': 'VOUCHER',
+                'sourceId': str(line.voucher.id),
             })
         for line in journal_lines_qs:
             je = line.journal_entry
@@ -248,6 +250,8 @@ class LedgerStatementView(APIView):
                 'description': je.narration,
                 'debit': float(line.debit_amount),
                 'credit': float(line.credit_amount),
+                'sourceType': je.source_type,
+                'sourceId': str(je.source_id) if je.source_id else '',
             })
 
         raw.sort(key=lambda r: (r['_date'], r['_created_at']))
@@ -264,6 +268,8 @@ class LedgerStatementView(APIView):
                 'debit': row['debit'],
                 'credit': row['credit'],
                 'balance': round(running, 2),
+                'sourceType': row['sourceType'],
+                'sourceId': row['sourceId'],
             })
 
         return Response({

@@ -22,6 +22,7 @@ from apps.billing.services import (
     InsufficientStockError,
     ScheduleHViolationError,
 )
+from apps.billing.utils.pricing import validate_sale_price
 from apps.inventory.models import Batch, MasterProduct
 from apps.accounts.models import Staff, Customer, Ledger
 from apps.accounts.journal_service import post_sale_invoice
@@ -374,6 +375,18 @@ class SaleCreateView(APIView):
 
                             logger.debug(f"Deducted {qty_to_deduct} strips from batch {batch.batch_no}")
 
+                            # NEW: Validate Landing Cost & MRP pricing
+                            proposed_rate = Decimal(str(item_data.get('rate', batch.sale_rate)))
+                            pricing_check = validate_sale_price(proposed_rate, batch, outlet_id)
+                            if pricing_check.get('block'):
+                                transaction.set_rollback(True)
+                                return Response({
+                                    "batchId": str(batch.id),
+                                    "sale_rate": pricing_check['message'],
+                                    "landing_cost": str(pricing_check['landing_cost']),
+                                    "mrp": str(pricing_check['mrp'])
+                                }, status=status.HTTP_400_BAD_REQUEST)
+
                             # Create SaleItem
                             sale_item = SaleItem.objects.create(
                                 invoice=sale_invoice,
@@ -387,7 +400,7 @@ class SaleCreateView(APIView):
                                 expiry_date=batch.expiry_date,
                                 mrp=batch.mrp,
                                 sale_rate=batch.sale_rate,
-                                rate=Decimal(str(item_data.get('rate', batch.sale_rate))),
+                                rate=proposed_rate,
                                 qty_strips=qty_to_deduct,
                                 qty_loose=item_data.get('qtyLoose', 0),
                                 sale_mode=item_data.get('saleMode', 'strip'),

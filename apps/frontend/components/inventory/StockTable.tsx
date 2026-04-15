@@ -14,14 +14,14 @@ import { ProductSearchResult } from '@/types';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, PackageSearch, Eye, SlidersHorizontal, ChevronUp, ChevronDown } from 'lucide-react';
+import { Search, PackageSearch, Eye, SlidersHorizontal, ChevronUp, ChevronDown, Pencil } from 'lucide-react';
 import { formatCurrency } from '@/lib/gst';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PermissionGate } from '@/components/shared/PermissionGate';
 import { useDebounce } from '@/hooks/useDebounce';
 import { SCHEDULE_TYPE_OPTIONS } from '@/constants/scheduleTypes';
 
-export function StockTable({ onProductClick, onAdjustClick }: any) {
+export function StockTable({ onProductClick, onAdjustClick, onEditClick }: any) {
     const { filters, setFilter, clearFilters } = useInventoryFilters();
     
     // For debounce
@@ -101,7 +101,7 @@ export function StockTable({ onProductClick, onAdjustClick }: any) {
                 const qtyLoose = p.batches?.reduce((sum: number, b: any) => sum + (Number(b.qtyLoose) || 0), 0) || 0;
                 
                 // Use dynamic labels based on the packaging setup
-                const packTypeLabel = p.packType ? `${p.packType}s` : 'strips';
+                const packTypeLabel = p.packType ? `${p.packType}s` : 'units';
                 const packUnitLabel = p.packUnit ? `${p.packUnit}s` : 'loose';
 
                 let color = "text-slate-900";
@@ -178,15 +178,26 @@ export function StockTable({ onProductClick, onAdjustClick }: any) {
             id: 'actions',
             header: 'Actions',
             cell: ({ row }) => (
-                <div className="w-28 flex gap-1">
-                     <Button variant="outline" size="sm" onClick={() => onProductClick(row.original)}>
+                <div className="w-36 flex gap-1">
+                     <Button variant="outline" size="sm" onClick={() => onProductClick(row.original)} title="View batches">
                          <Eye className="w-3 h-3" />
                      </Button>
+                     <PermissionGate permission="manage_products">
+                         <Button
+                             variant="outline"
+                             size="sm"
+                             onClick={() => onEditClick?.(row.original)}
+                             title="Edit product details"
+                             className="border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                         >
+                             <Pencil className="w-3 h-3" />
+                         </Button>
+                     </PermissionGate>
                      <PermissionGate permission="manage_staff">
                          <Button variant="outline" size="sm" onClick={() => {
                              if(row.original.batches.length > 0)
                                  onAdjustClick(row.original.batches[0])
-                         }}>
+                         }} title="Adjust stock">
                              <SlidersHorizontal className="w-3 h-3" />
                          </Button>
                      </PermissionGate>

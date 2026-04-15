@@ -1,10 +1,12 @@
 from django.urls import path
 from apps.inventory.views import (
     ProductSearchView, InventoryListView, InventoryAlertsView, InventoryAdjustView,
-    ProductListView, ProductDetailView, ProductBatchesView, InventoryExportCSVView
+    ProductListView, ProductDetailView, ProductBatchesView, InventoryExportCSVView,
+    BatchLandingCostView
 )
 
 urlpatterns = [
+    path('batches/<uuid:batch_id>/landing-cost/', BatchLandingCostView.as_view(), name='batch-landing-cost'),
     path('products/', ProductListView.as_view(), name='product-list'),
     path('products/search/', ProductSearchView.as_view(), name='product-search'),
     path('products/<uuid:pk>/', ProductDetailView.as_view(), name='product-detail'),

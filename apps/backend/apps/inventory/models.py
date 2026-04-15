@@ -53,7 +53,7 @@ class MasterProduct(models.Model):
     category = models.CharField(max_length=100)
     drug_type = models.CharField(max_length=20, choices=DRUG_TYPE_CHOICES)
     schedule_type = models.CharField(max_length=20, choices=SCHEDULE_TYPE_CHOICES, default='OTC')
-    hsn_code = models.CharField(max_length=20, unique=True)
+    hsn_code = models.CharField(max_length=20, blank=True, null=True, db_index=True)
     gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     pack_size = models.IntegerField(help_text='Number of units per pack (e.g., 10 tablets per strip)')
     pack_unit = models.CharField(max_length=50, help_text='Unit name (e.g., tablet, capsule, ml, etc.)')

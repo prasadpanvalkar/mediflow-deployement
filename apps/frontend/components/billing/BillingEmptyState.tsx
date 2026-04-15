@@ -1,3 +1,5 @@
+'use client'
+
 import { Lock, Search } from 'lucide-react'
 import { useBillingStore } from '@/store/billingStore'
 
@@ -37,12 +39,12 @@ export function BillingEmptyState({ isPinVerified }: { isPinVerified: boolean })
                         <Search className="w-12 h-12 text-blue-300" />
                     </div>
                 )}
-                
+
                 <h3 className="text-xl font-bold text-slate-900">Search for a medicine</h3>
                 <p className="text-slate-500 mt-2 max-w-sm">
                     Type the medicine name, salt, or scan the product barcode to add to cart.
                 </p>
-                
+
                 <div className="mt-8 flex items-center gap-3 text-sm text-slate-400">
                     <span>Press</span>
                     <kbd className="bg-slate-100 border border-slate-200 px-2 py-1 rounded text-slate-600 font-sans font-medium">

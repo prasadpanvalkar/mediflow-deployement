@@ -1,4 +1,5 @@
 from django.db import models
+from decimal import Decimal
 import uuid
 
 
@@ -101,6 +102,8 @@ class PurchaseInvoice(models.Model):
                                     help_text='Penny rounding (±)')
     ledger_adjustment = models.DecimalField(max_digits=12, decimal_places=2, default=0,
                                             help_text='Adjustment amounts (e.g. from Debit Notes)')
+    ledger_note = models.CharField(max_length=255, null=True, blank=True,
+                                   help_text='Optional note explaining the ledger adjustment')
 
     # Grand total
     grand_total = models.DecimalField(max_digits=12, decimal_places=2,
@@ -179,6 +182,23 @@ class PurchaseItem(models.Model):
                               help_text='Price to Stockist (wholesaler margin)')
     sale_rate = models.DecimalField(max_digits=10, decimal_places=2,
                                     help_text='Our sale rate for this batch')
+                                    
+    # Inward landing costs
+    freight_per_unit = models.DecimalField(max_digits=10, decimal_places=4, default=0, help_text="Freight/transport cost apportioned per unit for this batch")
+    other_cost_per_unit = models.DecimalField(max_digits=10, decimal_places=4, default=0, help_text="Any other inward cost per unit (loading, unloading, etc.)")
+
+    def get_landing_cost(self, include_gst: bool = False) -> Decimal:
+        """
+        Compute the minimum price floor for this batch.
+        include_gst: True if pharmacy does not claim ITC (GST is added to cost).
+                     False if pharmacy claims ITC (GST is recovered as credit, not a cost).
+        """
+        base = self.purchase_rate
+        if include_gst:
+            gst_amount = base * (self.gst_rate / Decimal('100'))
+            base = base + gst_amount
+        base = base + self.freight_per_unit + self.other_cost_per_unit
+        return base.quantize(Decimal('0.0001'))
 
     # Computed amounts (stored for reporting/audit)
     taxable_amount = models.DecimalField(max_digits=12, decimal_places=2)

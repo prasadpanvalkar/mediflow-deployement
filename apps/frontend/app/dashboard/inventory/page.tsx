@@ -15,11 +15,12 @@ import { ExpiryTable } from '@/components/inventory/ExpiryTable';
 import { LowStockTable } from '@/components/inventory/LowStockTable';
 import { BatchDetailDrawer } from '@/components/inventory/BatchDetailDrawer';
 import { StockAdjustmentModal } from '@/components/inventory/StockAdjustmentModal';
-import { Batch } from '@/types';
+import { Batch, MasterProduct, ProductSearchResult } from '@/types';
 import { useStockList, useExpiryReport, useLowStockReport } from '@/hooks/useInventory';
 import { inventoryApi } from '@/lib/apiClient';
 import { exportToCSV } from '@/lib/export';
 import { useToast } from '@/hooks/use-toast';
+import { EditProductModal } from '@/components/inventory/EditProductModal';
 
 export default function InventoryPage() {
     const router = useRouter();
@@ -30,6 +31,10 @@ export default function InventoryPage() {
     const [selectedProduct, setSelectedProduct] = useState<ProductSearchResult | null>(null);
     const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
     const [adjustmentBatch, setAdjustmentBatch] = useState<Batch | null>(null);
+
+    // Edit product
+    const [editProduct, setEditProduct] = useState<MasterProduct | null>(null);
+    const [showEditModal, setShowEditModal] = useState(false);
 
     // Queries to just get sizes for the badges
     const { data: stockData } = useStockList({});
@@ -162,6 +167,10 @@ export default function InventoryPage() {
                                  setAdjustmentBatch(batch);
                                  setShowAdjustmentModal(true);
                              }}
+                             onEditClick={(product: MasterProduct) => {
+                                 setEditProduct(product);
+                                 setShowEditModal(true);
+                             }}
                          />
                      </TabsContent>
 
@@ -201,6 +210,15 @@ export default function InventoryPage() {
                      setAdjustmentBatch(null);
                  }}
                  onSubmit={handleAdjustStock}
+             />
+
+             <EditProductModal
+                 product={editProduct}
+                 open={showEditModal}
+                 onOpenChange={(o) => {
+                     setShowEditModal(o);
+                     if (!o) setEditProduct(null);
+                 }}
              />
         </div>
     );

@@ -97,7 +97,15 @@ export default function BillingPage() {
             await saveBill(payment)
             setShowPayment(false);
         } catch (err: any) {
-            const msg = err?.detail ?? err?.error?.message ?? err?.message ?? 'Failed to save bill. Please try again.'
+            const data = err?.response?.data || err?.error || err;
+            if (data?.batchId && data?.sale_rate) {
+                useBillingStore.getState().setBackendRateError(data.batchId, data.sale_rate);
+                setShowPayment(false);
+                toast({ variant: 'destructive', title: 'Pricing Error', description: 'Please resolve the pricing errors in your cart before saving.' });
+                return;
+            }
+
+            const msg = err?.detail ?? err?.error?.message ?? err?.message ?? data?.detail ?? 'Failed to save bill. Please try again.'
             toast({ variant: 'destructive', title: 'Bill save failed', description: msg })
             setShowPayment(true)
         }

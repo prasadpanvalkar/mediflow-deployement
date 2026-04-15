@@ -136,6 +136,23 @@ class OutletSettings(models.Model):
     enable_whatsapp = models.BooleanField(default=False)
     whatsapp_api_key = models.CharField(max_length=200, null=True, blank=True)
     currency_symbol = models.CharField(max_length=5, default='₹')
+    
+    # Landing Cost & Margin Settings
+    landing_cost_include_gst = models.BooleanField(
+        default=False,
+        help_text="ON = Include purchase GST in landing cost floor (for pharmacies that do NOT claim ITC). OFF = Exclude GST from landing cost (for ITC-registered pharmacies — GST is recovered as credit)."
+    )
+    landing_cost_include_freight = models.BooleanField(
+        default=True,
+        help_text="Include per-unit freight in landing cost floor calculation."
+    )
+    min_margin_warning_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0.00,
+        help_text="Optional: Show a soft warning if margin falls below this percentage. Set 0 to disable."
+    )
+    
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

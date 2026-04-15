@@ -23,9 +23,6 @@ COPY apps/frontend/ ./apps/frontend/
 
 WORKDIR /app/apps/frontend
 
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN npx playwright install --with-deps chromium || true
-
 RUN npm run build
 
 EXPOSE 3000

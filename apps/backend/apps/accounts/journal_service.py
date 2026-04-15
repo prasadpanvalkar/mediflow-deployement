@@ -301,17 +301,20 @@ def post_purchase_invoice(purchase_invoice, distributor_ledger=None):
                 f"sync_distributor_ledgers to link existing distributors."
             )
 
-        lines.append(('credit', distributor_ledger, grand_total))
+        # Ledger Adjustment — balances the gap between (taxable+gst+round_off) and grand_total
+        ledger_adj = purchase_invoice.ledger_adjustment or Decimal('0')
+        if ledger_adj != Decimal('0'):
+            ledger_adj_account = _get_ledger(outlet, 'Ledger Adjustment')
+            if ledger_adj < Decimal('0'):
+                # User added credit (e.g. +₹200 stored as -200) → reduces payable
+                # Dr. Ledger Adjustment (adds to debit side to balance)
+                lines.append(('debit', ledger_adj_account, abs(ledger_adj)))
+            else:
+                # User subtracted from invoice (e.g. -₹200 stored as +200) → increases payable
+                # Cr. Ledger Adjustment (adds to credit side to balance)
+                lines.append(('credit', ledger_adj_account, ledger_adj))
 
-        # Ledger Adjustment — bridges the gap if the distributor allowed us a deduction
-        # (e.g. from past returns) that the frontend subtracted from grand_total.
-        ledger_adjustment = purchase_invoice.ledger_adjustment or Decimal('0')
-        if ledger_adjustment > 0:
-            try:
-                discount_ledger = _get_ledger(outlet, 'Discount Received')
-            except Ledger.DoesNotExist:
-                discount_ledger = _get_ledger(outlet, 'Round Off') # Fallback if not seeded
-            lines.append(('credit', discount_ledger, ledger_adjustment))
+        lines.append(('credit', distributor_ledger, grand_total))
 
         # Verify double-entry balance before writing anything
         total_debit = sum(amt for t, _, amt in lines if t == 'debit')
@@ -321,7 +324,7 @@ def post_purchase_invoice(purchase_invoice, distributor_ledger=None):
                 f"Purchase {purchase_invoice.id}: double-entry imbalance — "
                 f"Dr ₹{total_debit} vs Cr ₹{total_credit} "
                 f"(taxable={taxable_amount}, gst={gst_amount}, round_off={round_off}, "
-                f"ledger_adjustment={ledger_adjustment}, grand_total={grand_total}). "
+                f"ledger_adjustment={ledger_adj}, grand_total={grand_total}). "
                 f"Check that invoice amounts sum correctly."
             )
 

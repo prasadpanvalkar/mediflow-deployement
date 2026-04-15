@@ -72,7 +72,7 @@ services:
       dockerfile: docker/frontend.Dockerfile
     container_name: mediflow_frontend
     restart: unless-stopped
-    command: ["sh", "-c", "npm run build && npm start"]
+    command: ["npm", "start"]
     env_file:
       - ./apps/frontend/.env.local
     environment:
@@ -128,11 +128,7 @@ services:
 # ── Volumes ───────────────────────────────────────────────────────────────
 volumes:
   postgres_data:
-    external: true
-    name: mediflow_postgres_data
   redis_data:
-    external: true
-    name: mediflow_redis_data
   static_files:
   media_files:
 

@@ -578,6 +578,7 @@ class PurchaseCreateView(APIView):
             'freight': float(purchase_invoice.freight),
             'roundOff': float(purchase_invoice.round_off),
             'ledgerAdjustment': float(purchase_invoice.ledger_adjustment),
+            'ledgerNote': purchase_invoice.ledger_note or '',
             'grandTotal': float(purchase_invoice.grand_total),
             'amountPaid': float(purchase_invoice.amount_paid),
             'outstanding': float(purchase_invoice.outstanding),
@@ -598,7 +599,8 @@ class PurchaseCreateView(APIView):
             'hsnCode': item.hsn_code,
             'batchNo': item.batch_no,
             'expiryDate': item.expiry_date.isoformat(),
-            'pkg': item.pkg,
+            'pkg': item.master_product.pack_size if item.master_product and item.master_product.pack_size else (item.pkg or 1),
+            'packUnitLabel': item.master_product.pack_unit if item.master_product else '',
             'qty': item.qty,
             'actualQty': item.actual_qty,
             'freeQty': item.free_qty,
@@ -797,6 +799,7 @@ class PurchaseListView(APIView):
             'freight': float(purchase_invoice.freight),
             'roundOff': float(purchase_invoice.round_off),
             'ledgerAdjustment': float(purchase_invoice.ledger_adjustment),
+            'ledgerNote': purchase_invoice.ledger_note or '',
             'grandTotal': float(purchase_invoice.grand_total),
             'amountPaid': float(purchase_invoice.amount_paid),
             'outstanding': float(purchase_invoice.outstanding),
@@ -818,55 +821,6 @@ class DistributorPaymentView(APIView):
     permission_classes = [IsManagerOrAbove]
 
     def post(self, request, *args, **kwargs):
-        """
-        Record a payment to a distributor.
-
-        Request body:
-        {
-            "distributorId": "...",
-            "date": "2026-03-17",
-            "totalAmount": 1000,
-            "paymentMode": "cash",
-            "referenceNo": "CHQ12345",
-            "notes": "Payment for invoices PU-001 and PU-002",
-            "allocations": [
-                {
-                    "purchaseInvoiceId": "...",
-                    "allocatedAmount": 500
-                },
-                {
-                    "purchaseInvoiceId": "...",
-                    "allocatedAmount": 500
-                }
-            ]
-        }
-
-        Returns:
-        {
-            "id": "...",
-            "outletId": "...",
-            "distributorId": "...",
-            "distributor": {...},
-            "date": "2026-03-17",
-            "totalAmount": 1000,
-            "paymentMode": "cash",
-            "referenceNo": "CHQ12345",
-            "notes": "...",
-            "allocations": [
-                {
-                    "purchaseInvoiceId": "...",
-                    "invoiceNo": "PU-001",
-                    "invoiceDate": "2026-03-10",
-                    "invoiceTotal": 1000,
-                    "currentOutstanding": 1000,
-                    "allocatedAmount": 500
-                }
-            ],
-            "createdBy": "...",
-            "createdAt": "2026-03-17T..."
-        }
-        """
-
         try:
             payload = request.data
             outlet_id = request.query_params.get('outletId') or payload.get('outletId')
@@ -1017,6 +971,8 @@ class PurchaseDetailView(APIView):
             'cessAmount': float(invoice.cess_amount),
             'freight': float(invoice.freight),
             'roundOff': float(invoice.round_off),
+            'ledgerAdjustment': float(invoice.ledger_adjustment),
+            'ledgerNote': invoice.ledger_note or '',
             'grandTotal': float(invoice.grand_total),
             'amountPaid': float(invoice.amount_paid),
             'outstanding': float(invoice.outstanding),

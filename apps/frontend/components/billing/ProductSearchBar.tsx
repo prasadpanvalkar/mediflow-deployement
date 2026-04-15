@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle, useMemo } from 'react'
 import { Search, X, Pill, PackageSearch } from 'lucide-react'
 import { useProductSearch } from '@/hooks/useProductSearch'
 import { ProductSearchResult } from '@/types'
@@ -17,13 +17,14 @@ export const ProductSearchBar = forwardRef<HTMLInputElement, ProductSearchBarPro
         const [query, setQuery] = useState('')
         const [isOpen, setIsOpen] = useState(false)
         const [highlightedIndex, setHighlightedIndex] = useState(-1)
-        
+
         const internalRef = useRef<HTMLInputElement>(null)
         const dropdownRef = useRef<HTMLDivElement>(null)
 
         useImperativeHandle(ref, () => internalRef.current as HTMLInputElement)
 
-        const { data: results = [], isLoading } = useProductSearch(query)
+        const { data: rawResults = [], isLoading } = useProductSearch(query)
+        const results = useMemo(() => rawResults.filter(p => p.totalStock > 0), [rawResults])
 
         const handleSelect = (product: ProductSearchResult) => {
             if (product.totalStock === 0) return
@@ -99,10 +100,10 @@ export const ProductSearchBar = forwardRef<HTMLInputElement, ProductSearchBarPro
             }
             const regex = new RegExp(`(${highlight})`, 'gi');
             const parts = text.split(regex);
-            
+
             return (
                 <span>
-                    {parts.map((part, i) => 
+                    {parts.map((part, i) =>
                         regex.test(part) ? (
                             <span key={i} className="font-bold bg-yellow-100 text-slate-900">{part}</span>
                         ) : (
@@ -128,11 +129,11 @@ export const ProductSearchBar = forwardRef<HTMLInputElement, ProductSearchBarPro
             switch (type) {
                 case 'H1':
                 case 'X':
-                case 'Narcotic': 
+                case 'Narcotic':
                     return 'bg-red-100 text-red-700 border-red-200'
-                case 'H': 
+                case 'H':
                     return 'bg-amber-100 text-amber-700 border-amber-200'
-                case 'OTC': 
+                case 'OTC':
                 default:
                     return 'bg-green-100 text-green-700 border-green-200'
             }
@@ -141,7 +142,7 @@ export const ProductSearchBar = forwardRef<HTMLInputElement, ProductSearchBarPro
         return (
             <div className="relative w-full max-w-2xl">
                 <Search className="absolute left-4 top-3.5 w-5 h-5 text-muted-foreground z-10" />
-                
+
                 <input
                     ref={internalRef}
                     data-testid="product-search"
@@ -180,7 +181,7 @@ export const ProductSearchBar = forwardRef<HTMLInputElement, ProductSearchBarPro
                 )}
 
                 {isOpen && query.length >= 2 && (
-                    <div 
+                    <div
                         ref={dropdownRef}
                         className="absolute top-full left-0 right-0 mt-2 z-50 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden max-h-80 overflow-y-auto"
                     >
@@ -199,9 +200,9 @@ export const ProductSearchBar = forwardRef<HTMLInputElement, ProductSearchBarPro
                         ) : results.length > 0 ? (
                             <div className="py-1">
                                 {results.map((product, index) => {
-                                    const outOfStock = product.totalStock === 0
+                                    const outOfStock = false; // Always false since we filtered them out
                                     const lowStock = product.totalStock > 0 && product.totalStock <= 10
-                                    
+
                                     return (
                                         <button
                                             key={product.id}
@@ -217,7 +218,7 @@ export const ProductSearchBar = forwardRef<HTMLInputElement, ProductSearchBarPro
                                             <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5", getScheduleColors(product.scheduleType))}>
                                                 <Pill className="w-5 h-5" />
                                             </div>
-                                            
+
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-sm font-semibold text-slate-900 truncate">
                                                     {renderHighlightedText(product.name, query)}

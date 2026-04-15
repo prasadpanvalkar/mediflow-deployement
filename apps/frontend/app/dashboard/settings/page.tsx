@@ -8,6 +8,7 @@ import { OutletSettingsSection } from '@/components/settings/OutletSettingsSecti
 import { GSTSettingsSection } from '@/components/settings/GSTSettingsSection';
 import { PrinterSettingsSection } from '@/components/settings/PrinterSettingsSection';
 import { BillingSettingsSection } from '@/components/settings/BillingSettingsSection';
+import { BillingPricingSettingsSection } from '@/components/settings/BillingPricingSettingsSection';
 import { AttendanceSettingsSection } from '@/components/settings/AttendanceSettingsSection';
 import { NotificationsSection } from '@/components/settings/NotificationsSection';
 import { PreferencesSection } from '@/components/settings/PreferencesSection';
@@ -107,6 +108,9 @@ export default function SettingsPage() {
                     )}
                     {activeSection === 'billing' && (
                         <BillingSettingsSection {...sectionProps} />
+                    )}
+                    {activeSection === 'pricing' && (
+                        <BillingPricingSettingsSection />
                     )}
                     {activeSection === 'attendance' && (
                         <AttendanceSettingsSection {...sectionProps} />

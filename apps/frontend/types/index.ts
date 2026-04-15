@@ -194,6 +194,8 @@ export interface MasterProduct {
     imageUrl?: string;
     mrp: number;
     saleRate: number;
+    minQty?: number;
+    reorderQty?: number;
     currentStock?: number;
 }
 
@@ -339,6 +341,7 @@ export interface CartItem {
     gstAmount: number;
     totalAmount: number;
     purchaseRate?: number;
+    landingCost?: number;
 }
 
 export interface PaymentSplit {
@@ -549,9 +552,12 @@ export interface PurchaseItemFormData {
     batchNo: string;
     expiryDate: string;
     pkg: number;
+    packUnitLabel?: string;
     qty: number;
     freeQty: number;
     purchaseRate: number;
+    freightPerUnit: number;
+    otherCostPerUnit: number;
     discountPct: number;
     cashDiscountPct: number;
     gstRate: number;
@@ -621,6 +627,8 @@ export interface PurchaseInvoice {
     cessAmount: number;             // cess on applicable items
     freight: number;                // transport / freight charges
     roundOff: number;               // penny rounding (±)
+    ledgerAdjustment?: number;      // signed: negative = Add to total, positive = Subtract
+    ledgerNote?: string;            // optional note for the ledger adjustment
     grandTotal: number;             // taxable + gst + cess + freight + roundOff
 
     // Payment
@@ -655,6 +663,8 @@ export interface CreatePurchaseItemPayload {
     actualQty: number;              // pkg × qty — pre-computed on client
     freeQty: number;
     purchaseRate: number;
+    freightPerUnit: number;
+    otherCostPerUnit: number;
     discountPct: number;
     cashDiscountPct: number;
     gstRate: number;
@@ -1453,4 +1463,6 @@ export interface LedgerTransaction {
     debit: number;
     credit: number;
     balance: number;
+    sourceType: string;  // 'PURCHASE' | 'SALE' | 'VOUCHER' | 'RETURN' | 'CREDIT_PAYMENT' | ...
+    sourceId: string;    // UUID of the source document
 }

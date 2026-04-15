@@ -46,6 +46,11 @@ interface BillingState {
     setLastInvoice: (inv: SaleInvoice | null) => void;
     resetBilling: () => void;
 
+    backendRateErrors: Record<string, string>;
+    setBackendRateError: (batchId: string, errorMsg: string) => void;
+    clearBackendRateError: (batchId: string) => void;
+    clearAllBackendRateErrors: () => void;
+
     // Computed (get values as functions)
     getTotals: () => BillTotals;
     hasScheduleHItems: () => boolean;
@@ -78,6 +83,16 @@ export const useBillingStore = create<BillingState>((set, get) => ({
     lastInvoice: null,
     billsToday: 0,
     extraDiscountPct: 0,
+    backendRateErrors: {},
+
+    setBackendRateError: (batchId, errorMsg) => set((state) => ({
+        backendRateErrors: { ...state.backendRateErrors, [batchId]: errorMsg }
+    })),
+    clearBackendRateError: (batchId) => set((state) => {
+        const { [batchId]: _, ...rest } = state.backendRateErrors;
+        return { backendRateErrors: rest };
+    }),
+    clearAllBackendRateErrors: () => set({ backendRateErrors: {} }),
 
     setActiveStaff: (staff) => set({ activeStaff: staff, isPinVerified: true }),
     clearPin: () => set({ activeStaff: null, isPinVerified: false }),

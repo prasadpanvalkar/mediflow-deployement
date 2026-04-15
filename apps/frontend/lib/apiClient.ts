@@ -273,7 +273,38 @@ const realProductsApi = {
         await assertOk(response);
         const data = await response.json();
         return Array.isArray(data) ? data : (data.data || []);
-    }
+    },
+    update: async (productId: string, payload: Partial<import('@/types').MasterProduct>): Promise<import('@/types').MasterProduct> => {
+        const response = await fetch(`${API_URL}/products/${productId}/`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify(payload),
+        });
+        await assertOk(response);
+        const item = await response.json();
+        return {
+            id: item.id,
+            name: item.name,
+            composition: item.composition ?? '',
+            manufacturer: item.manufacturer ?? '',
+            category: item.category ?? '',
+            drugType: item.drugType ?? 'allopathy',
+            scheduleType: item.scheduleType ?? 'OTC',
+            hsnCode: item.hsnCode ?? '',
+            gstRate: item.gstRate ?? 0,
+            packSize: item.packSize ?? 1,
+            packUnit: item.packUnit ?? '',
+            packType: item.packType ?? 'strip',
+            barcode: item.barcode,
+            isFridge: item.isFridge ?? false,
+            isDiscontinued: item.isDiscontinued ?? false,
+            imageUrl: item.imageUrl,
+            mrp: item.mrp ?? 0,
+            saleRate: item.saleRate ?? 0,
+            minQty: item.minQty,
+            reorderQty: item.reorderQty,
+        };
+    },
 };
 
 const realInventoryApi = {
@@ -1281,6 +1312,11 @@ const realVoucherApi = {
         await assertOk(response);
         const data = await response.json();
         return data.data || [];
+    },
+    getVoucherById: async (id: string): Promise<any> => {
+        const response = await fetch(`${API_URL}/vouchers/${id}/`, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
     },
     createVoucher: async (payload: any) => {
         const response = await fetch(`${API_URL}/vouchers/`, {
