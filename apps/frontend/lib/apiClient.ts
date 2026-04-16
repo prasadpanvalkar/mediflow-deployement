@@ -1206,8 +1206,10 @@ const realAccountsApi = {
         await assertOk(response);
         return response.json();
     },
-    getTrialBalance: async (outletId: string) => {
-        const url = `${API_URL}/trial-balance/?outlet_id=${outletId}`;
+    getTrialBalance: async (outletId: string, filters?: { from?: string; to?: string }) => {
+        let url = `${API_URL}/trial-balance/?outlet_id=${outletId}`;
+        if (filters?.from) url += `&from_date=${filters.from}`;
+        if (filters?.to) url += `&to_date=${filters.to}`;
         const response = await fetch(url, { headers: getHeaders() });
         await assertOk(response);
         return response.json();
@@ -1215,6 +1217,36 @@ const realAccountsApi = {
     getGSTSummary: async (outletId: string, month?: string) => {
         let url = `${API_URL}/gst-summary/?outlet_id=${outletId}`;
         if (month) url += `&month=${month}`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
+    },
+    getBalanceSheet: async (outletId: string, params?: {
+        as_on_date?: string;
+        stock_valuation?: string;
+        stock_scope?: string;
+        show_opening?: boolean;
+    }) => {
+        let url = `${API_URL}/balance-sheet/?outlet_id=${outletId}`;
+        if (params?.as_on_date) url += `&as_on_date=${params.as_on_date}`;
+        if (params?.stock_valuation) url += `&stock_valuation=${params.stock_valuation}`;
+        if (params?.stock_scope) url += `&stock_scope=${params.stock_scope}`;
+        if (params?.show_opening) url += `&show_opening=true`;
+        const response = await fetch(url, { headers: getHeaders() });
+        await assertOk(response);
+        return response.json();
+    },
+    getProfitLoss: async (outletId: string, params?: {
+        from_date?: string;
+        to_date?: string;
+        stock_valuation?: string;
+        stock_scope?: string;
+    }) => {
+        let url = `${API_URL}/profit-loss/?outlet_id=${outletId}`;
+        if (params?.from_date) url += `&from_date=${params.from_date}`;
+        if (params?.to_date) url += `&to_date=${params.to_date}`;
+        if (params?.stock_valuation) url += `&stock_valuation=${params.stock_valuation}`;
+        if (params?.stock_scope) url += `&stock_scope=${params.stock_scope}`;
         const response = await fetch(url, { headers: getHeaders() });
         await assertOk(response);
         return response.json();

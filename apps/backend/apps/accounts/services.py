@@ -33,7 +33,7 @@ class LedgerService:
         ('Shop Rent', 'Indirect Expenses', False),
         ('Electricity', 'Indirect Expenses', False),
         ('GST Input', 'Duties & Taxes', False),
-        ('GST Output', 'Duties & Taxes', False),
+        ('GST Payable', 'Current Liabilities', False),
     ]
 
     @staticmethod

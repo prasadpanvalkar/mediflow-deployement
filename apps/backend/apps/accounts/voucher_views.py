@@ -471,16 +471,20 @@ class LedgerPendingBillsView(APIView):
 
 class TrialBalanceView(APIView):
     """
-    GET /api/v1/accounts/trial-balance/?outlet_id=xxx
+    GET /api/v1/accounts/trial-balance/?outlet_id=xxx&from_date=yyyy-mm-dd&to_date=yyyy-mm-dd
 
-    Returns all ledgers grouped by account group with their balances.
-    Total debits should equal total credits for double-entry verification.
-
-    Access: super_admin, admin only.
+    Returns all ledgers grouped by their LedgerGroup.
+    Calculates Opening Balance (before from_date), Period Totals (from_date to to_date), 
+    and Closing Balance.
     """
     permission_classes = [IsAdminStaff]
 
     def get(self, request):
+        from decimal import Decimal
+        from django.db.models import Sum
+        from datetime import datetime, date
+        from apps.accounts.models import JournalLine
+
         outlet_id = request.query_params.get('outlet_id')
         if not outlet_id:
             return Response({'detail': 'outlet_id required'}, status=400)
@@ -494,61 +498,130 @@ class TrialBalanceView(APIView):
         except Outlet.DoesNotExist:
             return Response({'detail': 'Outlet not found'}, status=404)
 
-        # Get all ledgers grouped by group
-        groups = LedgerGroup.objects.filter(
-            outlet=outlet
-        ).prefetch_related('ledger_set').order_by('name')
+        from_date_str = request.query_params.get('from_date', '')
+        to_date_str = request.query_params.get('to_date', '')
+
+        # Defaults if not fully provided
+        today = date.today()
+        # Default starting of financial year: April 1st
+        if today.month < 4:
+            fin_year_start = date(today.year - 1, 4, 1)
+        else:
+            fin_year_start = date(today.year, 4, 1)
+
+        from_date = fin_year_start
+        to_date = today
+
+        if from_date_str:
+            try:
+                from_date = datetime.strptime(from_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+        if to_date_str:
+            try:
+                to_date = datetime.strptime(to_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+
+        groups = LedgerGroup.objects.filter(outlet=outlet).prefetch_related('ledger_set').order_by('name')
+
+        # Aggregate JournalLines < from_date for opening
+        opening_agg = JournalLine.objects.filter(
+            ledger__outlet=outlet,
+            journal_entry__date__lt=from_date
+        ).values('ledger_id').annotate(
+            tot_debit=Sum('debit_amount'),
+            tot_credit=Sum('credit_amount')
+        )
+        
+        # Aggregate JournalLines between from_date and to_date for period totals
+        period_agg = JournalLine.objects.filter(
+            ledger__outlet=outlet,
+            journal_entry__date__gte=from_date,
+            journal_entry__date__lte=to_date
+        ).values('ledger_id').annotate(
+            tot_debit=Sum('debit_amount'),
+            tot_credit=Sum('credit_amount')
+        )
+
+        op_map = {item['ledger_id']: item for item in opening_agg}
+        per_map = {item['ledger_id']: item for item in period_agg}
 
         groups_data = []
-        total_debit = 0
-        total_credit = 0
+        grand_total_closing_debit = Decimal('0')
+        grand_total_closing_credit = Decimal('0')
 
         for group in groups:
             group_ledgers = []
             for ledger in group.ledger_set.all():
-                balance = float(ledger.current_balance)
-                # Determine if balance is debit or credit based on group nature and balance_type
-                nature = group.nature
-                balance_type = ledger.balance_type
-
-                if nature in ('asset', 'expense'):
-                    # For assets/expenses: Dr balance is debit, Cr balance is credit
-                    if balance_type == 'Dr':
-                        debit = max(balance, 0)
-                        credit = max(-balance, 0)
-                    else:
-                        debit = max(-balance, 0)
-                        credit = max(balance, 0)
+                # 1. Base Opening Balance (from ledger creation)
+                base_opening = ledger.opening_balance or Decimal('0')
+                if ledger.balance_type == 'Cr':
+                    base_op_dr = Decimal('0')
+                    base_op_cr = base_opening
                 else:
-                    # For liabilities/income: Cr balance is credit, Dr balance is debit
-                    if balance_type == 'Cr':
-                        debit = max(-balance, 0)
-                        credit = max(balance, 0)
-                    else:
-                        debit = max(balance, 0)
-                        credit = max(-balance, 0)
+                    base_op_dr = base_opening
+                    base_op_cr = Decimal('0')
 
-                total_debit += debit
-                total_credit += credit
+                # 2. Accumulated before from_date
+                op_data = op_map.get(ledger.id, {})
+                acc_op_dr = op_data.get('tot_debit') or Decimal('0')
+                acc_op_cr = op_data.get('tot_credit') or Decimal('0')
+
+                total_op_dr = base_op_dr + acc_op_dr
+                total_op_cr = base_op_cr + acc_op_cr
+
+                # Net Opening Balance
+                opening_debit = Decimal('0')
+                opening_credit = Decimal('0')
+                if total_op_dr > total_op_cr:
+                    opening_debit = total_op_dr - total_op_cr
+                else:
+                    opening_credit = total_op_cr - total_op_dr
+
+                # 3. Period Totals
+                per_data = per_map.get(ledger.id, {})
+                period_debit = per_data.get('tot_debit') or Decimal('0')
+                period_credit = per_data.get('tot_credit') or Decimal('0')
+
+                # 4. Closing Balance
+                net_balance = (opening_debit - opening_credit) + (period_debit - period_credit)
+                
+                closing_debit = Decimal('0')
+                closing_credit = Decimal('0')
+                if net_balance > 0:
+                    closing_debit = net_balance
+                elif net_balance < 0:
+                    closing_credit = abs(net_balance)
+
+                grand_total_closing_debit += closing_debit
+                grand_total_closing_credit += closing_credit
 
                 group_ledgers.append({
+                    'id': str(ledger.id),
                     'name': ledger.name,
-                    'debit': debit,
-                    'credit': credit,
-                    'balance': balance,
+                    'opening_debit': float(opening_debit),
+                    'opening_credit': float(opening_credit),
+                    'period_debit': float(period_debit),
+                    'period_credit': float(period_credit),
+                    'closing_debit': float(closing_debit),
+                    'closing_credit': float(closing_credit)
                 })
 
             if group_ledgers:
                 groups_data.append({
+                    'id': str(group.id),
                     'group': group.name,
                     'ledgers': group_ledgers,
                 })
 
         return Response({
             'groups': groups_data,
-            'total_debit': total_debit,
-            'total_credit': total_credit,
-            'balanced': abs(total_debit - total_credit) < 0.01,
+            'total_closing_debit': float(grand_total_closing_debit),
+            'total_closing_credit': float(grand_total_closing_credit),
+            'balanced': abs(grand_total_closing_debit - grand_total_closing_credit) < Decimal('0.01'),
+            'from_date': str(from_date),
+            'to_date': str(to_date)
         })
 
 
@@ -605,7 +678,7 @@ class GSTSummaryView(APIView):
         # Query GST ledgers and their journal lines (includes IGST for interstate)
         gst_output_ledgers = Ledger.objects.filter(
             outlet=outlet,
-            name__in=['GST Output (CGST)', 'GST Output (SGST)', 'GST Output (IGST)']
+            name__in=['GST Payable CGST', 'GST Payable SGST', 'GST Payable IGST']
         )
         gst_input_ledgers = Ledger.objects.filter(
             outlet=outlet,
@@ -641,4 +714,649 @@ class GSTSummaryView(APIView):
             'gst_output': gst_output,
             'gst_input': gst_input,
             'gst_payable': gst_payable,
+        })
+
+
+class BalanceSheetView(APIView):
+    """
+    GET /api/v1/balance-sheet/?outlet_id=X&as_on_date=YYYY-MM-DD&stock_valuation=purchase_rate
+
+    Returns Balance Sheet in two-sided format (Marg ERP style):
+      LEFT  — Liabilities & Capital
+      RIGHT — Assets (including Stock in Hand from inventory)
+
+    Net Profit is always calculated for the FULL FINANCIAL YEAR up to as_on_date.
+    Duties & Taxes (GST Input) is placed on Assets side.
+    GST Payable goes on Liabilities side.
+    """
+    permission_classes = [IsAdminStaff]
+
+    def get(self, request):
+        from decimal import Decimal
+        from django.db.models import Sum
+        from datetime import date, datetime
+        from apps.accounts.models import JournalLine
+        from apps.inventory.models import Batch
+
+        outlet_id = request.query_params.get('outlet_id')
+        if not outlet_id:
+            return Response({'detail': 'outlet_id required'}, status=400)
+
+        if str(request.user.outlet_id) != str(outlet_id) and request.user.role != 'super_admin':
+            return Response({'detail': 'Access denied for this outlet.'}, status=403)
+
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=404)
+
+        # ── Date setup ───────────────────────────────────────────────────────
+        today = date.today()
+        as_on_date_str = request.query_params.get('as_on_date', '')
+        if as_on_date_str:
+            try:
+                as_on_date = datetime.strptime(as_on_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                as_on_date = today
+        else:
+            as_on_date = today
+
+        # Financial year start (April 1) for this as_on_date
+        if as_on_date.month < 4:
+            fy_start = date(as_on_date.year - 1, 4, 1)
+        else:
+            fy_start = date(as_on_date.year, 4, 1)
+
+        stock_valuation = request.query_params.get('stock_valuation', 'purchase_rate')
+        stock_scope = request.query_params.get('stock_scope', 'all_days')  # all_days | no_stock
+        show_opening = request.query_params.get('show_opening', 'false').lower() == 'true'
+
+        # ── Aggregate JournalLines up to as_on_date ─────────────────────────
+        # Opening balances: all journal lines BEFORE the FY start
+        opening_agg = JournalLine.objects.filter(
+            ledger__outlet=outlet,
+            journal_entry__date__lt=fy_start
+        ).values('ledger_id').annotate(
+            tot_debit=Sum('debit_amount'),
+            tot_credit=Sum('credit_amount')
+        )
+
+        # Period lines: FY start up to as_on_date
+        period_agg = JournalLine.objects.filter(
+            ledger__outlet=outlet,
+            journal_entry__date__gte=fy_start,
+            journal_entry__date__lte=as_on_date
+        ).values('ledger_id').annotate(
+            tot_debit=Sum('debit_amount'),
+            tot_credit=Sum('credit_amount')
+        )
+
+        op_map = {item['ledger_id']: item for item in opening_agg}
+        per_map = {item['ledger_id']: item for item in period_agg}
+
+        # ── Helper: compute closing balance for a ledger ─────────────────────
+        def ledger_closing(ledger):
+            base_opening = ledger.opening_balance or Decimal('0')
+            if ledger.balance_type == 'Cr':
+                base_op_dr, base_op_cr = Decimal('0'), base_opening
+            else:
+                base_op_dr, base_op_cr = base_opening, Decimal('0')
+
+            op_data = op_map.get(ledger.id, {})
+            acc_op_dr = op_data.get('tot_debit') or Decimal('0')
+            acc_op_cr = op_data.get('tot_credit') or Decimal('0')
+
+            total_op_dr = base_op_dr + acc_op_dr
+            total_op_cr = base_op_cr + acc_op_cr
+
+            if total_op_dr > total_op_cr:
+                opening_debit = total_op_dr - total_op_cr
+                opening_credit = Decimal('0')
+            else:
+                opening_debit = Decimal('0')
+                opening_credit = total_op_cr - total_op_dr
+
+            per_data = per_map.get(ledger.id, {})
+            period_debit = per_data.get('tot_debit') or Decimal('0')
+            period_credit = per_data.get('tot_credit') or Decimal('0')
+
+            net = (opening_debit - opening_credit) + (period_debit - period_credit)
+            if net > 0:
+                return float(opening_debit), float(opening_credit), float(net), 0.0
+            else:
+                return float(opening_debit), float(opening_credit), 0.0, float(abs(net))
+
+        # ── Group classification maps ────────────────────────────────────────
+        LIABILITIES_CAPITAL = {'Capital Account'}
+        LIABILITIES_LOANS = {'Loans (Liability)', 'Bank OD', 'Branch / Division', 'Suspense Account'}
+        LIABILITIES_CURRENT = {'Sundry Creditors', 'Current Liabilities'}
+
+        ASSETS_FIXED = {'Fixed Assets'}
+        ASSETS_INVESTMENTS = {'Investments'}
+        ASSETS_CURRENT = {
+            'Cash in Hand', 'Bank Accounts', 'Sundry Debtors',
+            'Current Assets', 'Duties & Taxes',  # GST Input = asset (Govt owes us)
+            'Stock in Hand',
+        }
+        # Sales Account / income / expense groups → used for Net Profit only
+        INCOME_GROUPS = {'Sales Account', 'Direct Incomes', 'Indirect Incomes'}
+        EXPENSE_GROUPS = {'Purchase Account', 'Direct Expenses', 'Indirect Expenses'}
+
+        # ── Build group data ─────────────────────────────────────────────────
+        all_groups = LedgerGroup.objects.filter(outlet=outlet).prefetch_related('ledger_set')
+
+        def build_group_data(group):
+            ledger_rows = []
+            group_dr_total = Decimal('0')
+            group_cr_total = Decimal('0')
+            for ledger in group.ledger_set.all():
+                op_dr, op_cr, cl_dr, cl_cr = ledger_closing(ledger)
+                # Skip zero-balance ledgers from data (frontend can filter)
+                ledger_rows.append({
+                    'id': str(ledger.id),
+                    'name': ledger.name,
+                    'opening_balance': float(op_dr if op_dr > 0 else op_cr),
+                    'opening_is_debit': op_dr > 0,
+                    'closing_debit': cl_dr,
+                    'closing_credit': cl_cr,
+                    'closing_balance': float(cl_dr if cl_dr > 0 else cl_cr),
+                    'is_debit_balance': cl_dr > 0,
+                    'balance_type': 'Dr' if cl_dr > 0 else 'Cr',
+                })
+                group_dr_total += Decimal(str(cl_dr))
+                group_cr_total += Decimal(str(cl_cr))
+
+            net_group = group_dr_total - group_cr_total
+            return {
+                'id': str(group.id),
+                'name': group.name,
+                'closing_debit': float(group_dr_total),
+                'closing_credit': float(group_cr_total),
+                'closing_balance': float(abs(net_group)),
+                'is_debit_balance': net_group >= 0,
+                'ledgers': ledger_rows,
+            }
+
+        # ── Categorize groups into Balance Sheet buckets ─────────────────────
+        capital_groups = []
+        loans_groups = []
+        current_liab_groups = []
+        fixed_asset_groups = []
+        investment_groups = []
+        current_asset_groups = []
+        # Income/expense groups for net profit calc only
+        income_groups = []
+        expense_groups = []
+
+        for group in all_groups:
+            gdata = build_group_data(group)
+            name = group.name
+
+            if name in LIABILITIES_CAPITAL:
+                capital_groups.append(gdata)
+            elif name in LIABILITIES_LOANS:
+                loans_groups.append(gdata)
+            elif name in LIABILITIES_CURRENT:
+                current_liab_groups.append(gdata)
+            elif name in ASSETS_FIXED:
+                fixed_asset_groups.append(gdata)
+            elif name in ASSETS_INVESTMENTS:
+                investment_groups.append(gdata)
+            elif name in ASSETS_CURRENT:
+                current_asset_groups.append(gdata)
+            elif name in INCOME_GROUPS:
+                income_groups.append(gdata)
+            elif name in EXPENSE_GROUPS:
+                expense_groups.append(gdata)
+            # else: ignore groups not relevant to balance sheet
+
+        # ── Net Profit (FY start → as_on_date) ─────────────────────────────
+        # Get all income and expense ledger IDs
+        income_group_names = list(INCOME_GROUPS)
+        expense_group_names = list(EXPENSE_GROUPS)
+
+        income_ledger_ids = Ledger.objects.filter(
+            outlet=outlet, group__name__in=income_group_names
+        ).values_list('id', flat=True)
+        expense_ledger_ids = Ledger.objects.filter(
+            outlet=outlet, group__name__in=expense_group_names
+        ).values_list('id', flat=True)
+
+        # Sum credits on income ledgers (FY start → as_on_date)
+        income_agg = JournalLine.objects.filter(
+            ledger__in=income_ledger_ids,
+            journal_entry__date__gte=fy_start,
+            journal_entry__date__lte=as_on_date
+        ).aggregate(
+            total_cr=Sum('credit_amount'),
+            total_dr=Sum('debit_amount')
+        )
+        # Also include anything before FY start (opening income balance)
+        income_agg_pre = JournalLine.objects.filter(
+            ledger__in=income_ledger_ids,
+            journal_entry__date__lt=fy_start
+        ).aggregate(
+            total_cr=Sum('credit_amount'),
+            total_dr=Sum('debit_amount')
+        )
+
+        income_total = float(
+            (income_agg['total_cr'] or Decimal('0'))
+            - (income_agg['total_dr'] or Decimal('0'))
+        )
+        # Add opening income balances (income ledger base opening balances)
+        for ledger in Ledger.objects.filter(outlet=outlet, group__name__in=income_group_names):
+            base = ledger.opening_balance or Decimal('0')
+            if ledger.balance_type == 'Cr':
+                income_total += float(base)
+            else:
+                income_total -= float(base)
+
+        # Sum debits on expense ledgers
+        expense_agg = JournalLine.objects.filter(
+            ledger__in=expense_ledger_ids,
+            journal_entry__date__gte=fy_start,
+            journal_entry__date__lte=as_on_date
+        ).aggregate(
+            total_cr=Sum('credit_amount'),
+            total_dr=Sum('debit_amount')
+        )
+
+        expense_total = float(
+            (expense_agg['total_dr'] or Decimal('0'))
+            - (expense_agg['total_cr'] or Decimal('0'))
+        )
+        # Add opening expense balances
+        for ledger in Ledger.objects.filter(outlet=outlet, group__name__in=expense_group_names):
+            base = ledger.opening_balance or Decimal('0')
+            if ledger.balance_type == 'Dr':
+                expense_total += float(base)
+            else:
+                expense_total -= float(base)
+
+        net_profit = income_total - expense_total  # positive = profit, negative = loss
+
+        # ── Stock in Hand (from inventory, read-only) ────────────────────────
+        stock_value = Decimal('0')
+        if stock_scope != 'no_stock':
+            batches = Batch.objects.filter(outlet=outlet, is_active=True, qty_strips__gt=0)
+            for batch in batches:
+                qty = Decimal(str(batch.qty_strips))
+                if stock_valuation == 'mrp_rate':
+                    rate = batch.mrp
+                elif stock_valuation == 'sale_rate':
+                    rate = batch.sale_rate
+                elif stock_valuation == 'cost_ext':
+                    rate = batch.purchase_rate * Decimal('1.05')  # purchase + 5%
+                else:  # purchase_rate (default)
+                    rate = batch.purchase_rate
+                stock_value += qty * rate
+
+        # ── Closing Stock adjusts Net Profit (Marg ERP Trading Account logic) ─
+        stock_total = float(stock_value)  # 0 when stock_scope == 'no_stock'
+        net_profit_adjusted = net_profit + stock_total  # closing stock offsets purchases in P&L
+        is_profit = net_profit_adjusted >= 0
+
+        # ── Compute section totals ───────────────────────────────────────────
+        def sum_groups_cr(groups):
+            """Sum credit (liability) closing balances of a list of groups."""
+            return sum(g['closing_credit'] for g in groups)
+
+        def sum_groups_dr(groups):
+            """Sum debit (asset) closing balances of a list of groups."""
+            return sum(g['closing_debit'] for g in groups)
+
+        def group_net(groups):
+            """Net closing balance (sum of all ledger credit - debit) for liability groups."""
+            total = 0.0
+            for g in groups:
+                total += g['closing_credit'] - g['closing_debit']
+            return total
+
+        def group_net_asset(groups):
+            """Net closing balance (debit - credit) for asset groups."""
+            total = 0.0
+            for g in groups:
+                total += g['closing_debit'] - g['closing_credit']
+            return total
+
+        capital_total = group_net(capital_groups) + net_profit_adjusted
+        loans_total = group_net(loans_groups)
+        current_liab_total = group_net(current_liab_groups)
+        total_liabilities = capital_total + loans_total + current_liab_total
+
+        fixed_assets_total = group_net_asset(fixed_asset_groups)
+        investments_total = group_net_asset(investment_groups)
+        current_assets_total = group_net_asset(current_asset_groups)
+        # stock_total already computed and adjusted into net_profit_adjusted above
+        total_assets = fixed_assets_total + investments_total + current_assets_total + stock_total
+
+        difference = abs(total_assets - total_liabilities)
+        is_tallied = difference < 0.02  # allow for rounding
+
+        # ── Build response ───────────────────────────────────────────────────
+        return Response({
+            'as_on_date': str(as_on_date),
+            'fy_start': str(fy_start),
+            'liabilities': {
+                'capital': {
+                    'groups': capital_groups,
+                    'net_profit': round(net_profit_adjusted, 2),
+                    'net_profit_raw': round(net_profit, 2),    # before closing stock adjustment
+                    'is_profit': is_profit,
+                    'total': round(capital_total, 2),
+                },
+                'loans': {
+                    'groups': loans_groups,
+                    'total': round(loans_total, 2),
+                },
+                'current_liabilities': {
+                    'groups': current_liab_groups,
+                    'total': round(current_liab_total, 2),
+                },
+                'total_liabilities': round(total_liabilities, 2),
+            },
+            'assets': {
+                'fixed_assets': {
+                    'groups': fixed_asset_groups,
+                    'total': round(fixed_assets_total, 2),
+                },
+                'investments': {
+                    'groups': investment_groups,
+                    'total': round(investments_total, 2),
+                },
+                'current_assets': {
+                    'groups': current_asset_groups,
+                    'total': round(current_assets_total, 2),
+                },
+                'stock_in_hand': {
+                    'valuation_method': stock_valuation,
+                    'value': round(stock_total, 2),
+                },
+                'total_assets': round(total_assets, 2),
+            },
+            'is_tallied': is_tallied,
+            'difference': round(difference, 2),
+        })
+
+
+class ProfitLossView(APIView):
+    """
+    GET /api/v1/profit-loss/?outlet_id=X&from_date=YYYY-MM-DD&to_date=YYYY-MM-DD
+                             &stock_scope=all_days&stock_valuation=purchase_rate
+
+    Returns a full Marg-ERP-style Trading + P&L Account in two-sided format:
+      LEFT  — Dr side  (Expenses, Opening Stock, Purchases)
+      RIGHT — Cr side  (Sales, Closing Stock, Income)
+
+    Net Profit here MUST match the Net Profit shown in Balance Sheet Capital.
+    """
+    permission_classes = [IsAdminStaff]
+
+    def get(self, request):
+        from decimal import Decimal
+        from django.db.models import Sum
+        from datetime import date, datetime
+        from apps.accounts.models import JournalLine
+        from apps.inventory.models import Batch
+
+        outlet_id = request.query_params.get('outlet_id')
+        if not outlet_id:
+            return Response({'detail': 'outlet_id required'}, status=400)
+
+        if str(request.user.outlet_id) != str(outlet_id) and request.user.role != 'super_admin':
+            return Response({'detail': 'Access denied for this outlet.'}, status=403)
+
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=404)
+
+        # ── Date setup ────────────────────────────────────────────────────────
+        today = date.today()
+
+        def parse_date(s):
+            try:
+                return datetime.strptime(s, '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                return None
+
+        # FY start (April 1 of current financial year)
+        fy_start = date(today.year, 4, 1) if today.month >= 4 else date(today.year - 1, 4, 1)
+
+        from_date = parse_date(request.query_params.get('from_date', '')) or fy_start
+        to_date   = parse_date(request.query_params.get('to_date', ''))   or today
+
+        stock_valuation = request.query_params.get('stock_valuation', 'purchase_rate')
+        stock_scope     = request.query_params.get('stock_scope', 'all_days')
+
+        # ── Helper — aggregate JournalLines for a set of ledger IDs in period ─
+        def period_agg(ledger_ids):
+            return JournalLine.objects.filter(
+                ledger_id__in=ledger_ids,
+                journal_entry__date__gte=from_date,
+                journal_entry__date__lte=to_date,
+            ).aggregate(
+                total_dr=Sum('debit_amount'),
+                total_cr=Sum('credit_amount'),
+            )
+
+        # ── Helper — build per-ledger breakdown for a group ─────────────────
+        def ledger_rows_for_group(group_name, side='dr'):
+            """Returns list of {id, name, value} for the group in the period."""
+            rows = []
+            try:
+                grp = LedgerGroup.objects.get(outlet=outlet, name=group_name)
+            except LedgerGroup.DoesNotExist:
+                return rows
+
+            for ledger in grp.ledger_set.all():
+                agg = period_agg([ledger.id])
+                dr = float(agg['total_dr'] or 0)
+                cr = float(agg['total_cr'] or 0)
+                value = dr - cr if side == 'dr' else cr - dr
+                rows.append({
+                    'id': str(ledger.id),
+                    'name': ledger.name,
+                    'value': round(value, 2),
+                })
+            return rows
+
+        # ── Helper — total for a named group ──────────────────────────────────
+        def group_total(group_name, side='dr'):
+            try:
+                grp = LedgerGroup.objects.get(outlet=outlet, name=group_name)
+            except LedgerGroup.DoesNotExist:
+                return Decimal('0')
+
+            ledger_ids = list(grp.ledger_set.values_list('id', flat=True))
+            if not ledger_ids:
+                return Decimal('0')
+            agg = period_agg(ledger_ids)
+            dr = agg['total_dr'] or Decimal('0')
+            cr = agg['total_cr'] or Decimal('0')
+            return (dr - cr) if side == 'dr' else (cr - dr)
+
+        # ── Helper — build expense/income group breakdown ─────────────────────
+        def build_group_block(group_names, side='dr'):
+            """Build list of {name, value, ledgers} for a list of group names."""
+            blocks = []
+            total = Decimal('0')
+            for gname in group_names:
+                ledgers = ledger_rows_for_group(gname, side)
+                val = sum(Decimal(str(l['value'])) for l in ledgers)
+                total += val
+                blocks.append({
+                    'name': gname,
+                    'value': round(float(val), 2),
+                    'ledgers': ledgers,
+                })
+            return blocks, float(total)
+
+        # ── SALES ──────────────────────────────────────────────────────────────
+        sales_ledgers = ledger_rows_for_group('Sales Account', 'cr')
+        # Net credits (income) from Sales Account
+        total_sales = sum(Decimal(str(l['value'])) for l in sales_ledgers)
+
+        # ── SALES RETURN (credit notes reduce sales) ───────────────────────────
+        sales_return_ledgers = ledger_rows_for_group('Sales Account', 'dr')  # debits to Sales = returns
+        # More robust: look for ledgers named "Sales Return" in any group
+        total_sales_return = Decimal('0')
+        sr_rows = []
+        try:
+            # Try to find a dedicated Sales Return ledger
+            from apps.accounts.models import Ledger as LedgerModel
+            for l in LedgerModel.objects.filter(outlet=outlet, name__icontains='sales return'):
+                agg = period_agg([l.id])
+                dr = float(agg['total_dr'] or 0)
+                cr = float(agg['total_cr'] or 0)
+                val = dr - cr  # Dr on sales return ledger = reducing sales
+                if abs(val) > 0.001:
+                    total_sales_return += Decimal(str(abs(val)))
+                    sr_rows.append({'id': str(l.id), 'name': l.name, 'value': round(abs(val), 2)})
+        except Exception:
+            pass
+
+        # ── PURCHASES ─────────────────────────────────────────────────────────
+        purchase_ledgers = ledger_rows_for_group('Purchase Account', 'dr')
+        total_purchases = sum(Decimal(str(l['value'])) for l in purchase_ledgers)
+
+        # ── DIRECT EXPENSES (excluding Purchase Account) ───────────────────────
+        DIRECT_EXP_GROUPS = ['Direct Expenses', 'Duties & Taxes']
+        direct_exp_blocks, total_direct_exp = build_group_block(DIRECT_EXP_GROUPS, 'dr')
+
+        # ── INDIRECT EXPENSES ─────────────────────────────────────────────────
+        INDIRECT_EXP_GROUPS = ['Indirect Expenses']
+        indirect_exp_blocks, total_indirect_exp = build_group_block(INDIRECT_EXP_GROUPS, 'dr')
+
+        # ── DIRECT INCOME ─────────────────────────────────────────────────────
+        DIRECT_INC_GROUPS = ['Direct Incomes']
+        direct_inc_blocks, total_direct_inc = build_group_block(DIRECT_INC_GROUPS, 'cr')
+
+        # ── INDIRECT INCOME ───────────────────────────────────────────────────
+        INDIRECT_INC_GROUPS = ['Indirect Incomes']
+        indirect_inc_blocks, total_indirect_inc = build_group_block(INDIRECT_INC_GROUPS, 'cr')
+
+        # ── OPENING STOCK ─────────────────────────────────────────────────────
+        # Approximation: opening_stock = 0 (current Batch model has no historical qty).
+        # This is consistent with Marg ERP when no opening entry exists.
+        opening_stock = Decimal('0')
+
+        # ── CLOSING STOCK ─────────────────────────────────────────────────────
+        closing_stock = Decimal('0')
+        if stock_scope != 'no_stock':
+            batches = Batch.objects.filter(outlet=outlet, is_active=True, qty_strips__gt=0)
+            for batch in batches:
+                qty = Decimal(str(batch.qty_strips))
+                if stock_valuation == 'mrp_rate':
+                    rate = batch.mrp
+                elif stock_valuation == 'sale_rate':
+                    rate = batch.sale_rate
+                elif stock_valuation == 'cost_ext':
+                    rate = batch.purchase_rate * Decimal('1.05')
+                else:
+                    rate = batch.purchase_rate
+                closing_stock += qty * rate
+
+        # ── GROSS PROFIT / LOSS ───────────────────────────────────────────────
+        # Cr side: Sales + Closing Stock
+        # Dr side: Opening Stock + Purchases + Direct Expenses
+        trading_cr = total_sales - total_sales_return + closing_stock
+        trading_dr = opening_stock + total_purchases + Decimal(str(total_direct_exp))
+
+        gross_profit_raw = float(trading_cr - trading_dr)
+        is_gross_profit = gross_profit_raw >= 0
+        gross_profit = abs(gross_profit_raw)
+
+        # Trading total (both sides must balance)
+        trading_total = float(max(trading_cr, trading_dr))
+
+        # ── NET PROFIT / LOSS ─────────────────────────────────────────────────
+        # Gross Profit b/f + Direct Income + Indirect Income − Indirect Expenses
+        net_profit_raw = gross_profit_raw + total_direct_inc + total_indirect_inc - float(total_indirect_exp)
+        is_net_profit = net_profit_raw >= 0
+        net_profit = abs(net_profit_raw)
+
+        # P&L total (both sides balance)
+        pl_cr = (gross_profit if is_gross_profit else 0) + total_direct_inc + total_indirect_inc + (0 if is_net_profit else net_profit)
+        pl_dr = (gross_profit if not is_gross_profit else 0) + float(total_indirect_exp) + (net_profit if is_net_profit else 0)
+        pl_total = float(max(pl_cr, pl_dr))
+
+        # Grand total
+        grand_total = trading_total + pl_total
+
+        return Response({
+            'from_date': str(from_date),
+            'to_date': str(to_date),
+            'fy_start': str(fy_start),
+            'trading_account': {
+                'dr': {
+                    'opening_stock': {
+                        'value': round(float(opening_stock), 2),
+                        'label': 'Opening Stock (approx.)',
+                    },
+                    'purchases': {
+                        'value': round(float(total_purchases), 2),
+                        'ledgers': purchase_ledgers,
+                    },
+                    'direct_expenses': {
+                        'value': round(total_direct_exp, 2),
+                        'groups': direct_exp_blocks,
+                    },
+                    'gross_profit': round(gross_profit, 2) if is_gross_profit else 0,
+                },
+                'cr': {
+                    'sales': {
+                        'value': round(float(total_sales), 2),
+                        'ledgers': sales_ledgers,
+                    },
+                    'sales_return': {
+                        'value': round(float(total_sales_return), 2),
+                        'ledgers': sr_rows,
+                    },
+                    'closing_stock': {
+                        'value': round(float(closing_stock), 2),
+                        'valuation_method': stock_valuation,
+                    },
+                    'gross_loss': round(gross_profit, 2) if not is_gross_profit else 0,
+                },
+                'trading_total_dr': round(trading_total, 2),
+                'trading_total_cr': round(trading_total, 2),
+            },
+            'pl_account': {
+                'dr': {
+                    'indirect_expenses': {
+                        'value': round(total_indirect_exp, 2),
+                        'groups': indirect_exp_blocks,
+                    },
+                    'gross_loss_bf': round(gross_profit, 2) if not is_gross_profit else 0,
+                    'net_profit': round(net_profit, 2) if is_net_profit else 0,
+                },
+                'cr': {
+                    'gross_profit_bf': round(gross_profit, 2) if is_gross_profit else 0,
+                    'direct_income': {
+                        'value': round(total_direct_inc, 2),
+                        'groups': direct_inc_blocks,
+                    },
+                    'indirect_income': {
+                        'value': round(total_indirect_inc, 2),
+                        'groups': indirect_inc_blocks,
+                    },
+                    'net_loss': round(net_profit, 2) if not is_net_profit else 0,
+                },
+                'pl_total_dr': round(pl_total, 2),
+                'pl_total_cr': round(pl_total, 2),
+            },
+            'summary': {
+                'gross_profit': round(gross_profit_raw, 2),
+                'net_profit': round(net_profit_raw, 2),
+                'gross_profit_pct': round((gross_profit_raw / float(total_sales) * 100) if total_sales else 0, 2),
+                'net_profit_pct': round((net_profit_raw / float(total_sales) * 100) if total_sales else 0, 2),
+                'total_sales': round(float(total_sales), 2),
+                'total_purchases': round(float(total_purchases), 2),
+                'closing_stock': round(float(closing_stock), 2),
+                'is_gross_profit': is_gross_profit,
+                'is_net_profit': is_net_profit,
+            },
+            'grand_total': round(grand_total, 2),
         })

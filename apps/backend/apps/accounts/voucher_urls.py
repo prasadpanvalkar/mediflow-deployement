@@ -9,6 +9,8 @@ from apps.accounts.voucher_views import (
     LedgerPendingBillsView,
     TrialBalanceView,
     GSTSummaryView,
+    BalanceSheetView,
+    ProfitLossView,
     VoucherNextNoView,
     VoucherListView,
     VoucherDetailView,
@@ -42,4 +44,6 @@ urlpatterns = [
     # Accounting Reports
     path('trial-balance/', TrialBalanceView.as_view(), name='trial-balance'),
     path('gst-summary/', GSTSummaryView.as_view(), name='gst-summary'),
+    path('balance-sheet/', BalanceSheetView.as_view(), name='balance-sheet'),
+    path('profit-loss/', ProfitLossView.as_view(), name='profit-loss'),
 ]

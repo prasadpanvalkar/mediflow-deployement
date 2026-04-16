@@ -99,10 +99,10 @@ def post_sale_invoice(sale_invoice):
       Dr. Card/POS Settlement       invoice.card_paid         [if > 0]
       Dr. Customer Ledger           invoice.credit_given      [if > 0]
       Cr. Sales Account             invoice.taxable_amount
-      Cr. GST Output (CGST)         invoice.cgst_amount       [intrastate]
-      Cr. GST Output (SGST)         invoice.sgst_amount       [intrastate]
+      Cr. GST Payable CGST          invoice.cgst_amount       [intrastate]
+      Cr. GST Payable SGST          invoice.sgst_amount       [intrastate]
       -- OR (interstate) --
-      Cr. GST Output (IGST)         invoice.igst_amount
+      Cr. GST Payable IGST          invoice.igst_amount
     """
     try:
         outlet = sale_invoice.outlet
@@ -156,15 +156,15 @@ def post_sale_invoice(sale_invoice):
 
         if igst_amount > 0:
             # Interstate sale — post to IGST ledger only (not CGST + SGST)
-            igst_ledger = _get_ledger(outlet, 'GST Output (IGST)')
+            igst_ledger = _get_ledger(outlet, 'GST Payable IGST')
             lines.append(('credit', igst_ledger, igst_amount))
         elif cgst_amount > 0 or sgst_amount > 0:
             # Intrastate sale — post CGST and SGST separately
             if cgst_amount > 0:
-                cgst_ledger = _get_ledger(outlet, 'GST Output (CGST)')
+                cgst_ledger = _get_ledger(outlet, 'GST Payable CGST')
                 lines.append(('credit', cgst_ledger, cgst_amount))
             if sgst_amount > 0:
-                sgst_ledger = _get_ledger(outlet, 'GST Output (SGST)')
+                sgst_ledger = _get_ledger(outlet, 'GST Payable SGST')
                 lines.append(('credit', sgst_ledger, sgst_amount))
         # else: 0% GST medicine — no GST posting needed
 

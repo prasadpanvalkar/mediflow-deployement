@@ -534,6 +534,49 @@ class SaleCreateView(APIView):
                     customer.save(update_fields=['total_purchases'])
                     logger.debug(f"Updated total_purchases for {customer.name}: +{sale_invoice.grand_total}")
 
+                    # ─── Step 7c: Create LedgerEntry (append-only) for Customer ───
+                    # 1. Invoice Posting Entry
+                    last_ledger = LedgerEntry.objects.filter(
+                        outlet=outlet,
+                        customer=customer,
+                        entity_type='customer'
+                    ).order_by('-date', '-created_at').first()
+
+                    running_balance = (last_ledger.running_balance if last_ledger else Decimal('0')) + sale_invoice.grand_total
+
+                    invoice_dt = sale_invoice.invoice_date
+                    invoice_d = invoice_dt.date() if hasattr(invoice_dt, 'date') else invoice_dt
+
+                    LedgerEntry.objects.create(
+                        outlet=outlet,
+                        entity_type='customer',
+                        customer=customer,
+                        date=invoice_d,
+                        entry_type='sale',
+                        reference_no=sale_invoice.invoice_no,
+                        description=f"Sale Invoice {sale_invoice.invoice_no}",
+                        debit=sale_invoice.grand_total,
+                        credit=Decimal('0'),
+                        running_balance=running_balance,
+                    )
+
+                    # 2. Payment Posting Entry (if any paid immediately)
+                    total_paid = (sale_invoice.cash_paid or Decimal('0')) + (sale_invoice.upi_paid or Decimal('0')) + (sale_invoice.card_paid or Decimal('0'))
+                    if total_paid > Decimal('0'):
+                        running_balance = running_balance - total_paid
+                        LedgerEntry.objects.create(
+                            outlet=outlet,
+                            entity_type='customer',
+                            customer=customer,
+                            date=invoice_d,
+                            entry_type='receipt',
+                            reference_no=sale_invoice.invoice_no,
+                            description=f"Instant Payment against {sale_invoice.invoice_no}",
+                            debit=Decimal('0'),
+                            credit=total_paid,
+                            running_balance=running_balance,
+                        )
+
                 # Post journal entry to general ledger (auto journal posting)
                 try:
                     post_sale_invoice(sale_invoice)

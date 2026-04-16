@@ -1,3 +1,47 @@
+# =============================================================================
+# seed_ledgers.py — DO NOT DELETE THIS FILE
+# =============================================================================
+#
+# PURPOSE:
+#   This Django management command creates the complete accounting structure
+#   (LedgerGroups + Ledgers) for a new pharmacy outlet.
+#
+# WHY IT IS NEEDED:
+#   MediFlow's accounting system works like a filing cabinet. Every outlet
+#   needs its own set of "drawers" (Ledger accounts) with the correct labels
+#   before any transactions can be recorded:
+#       - Sales Account         → receives all sale entries
+#       - Purchase Account      → receives all purchase entries
+#       - Cash in Hand          → receives cash payments
+#       - GST Payable CGST/SGST → receives GST tax entries
+#       - Sundry Debtors        → tracks credit customers
+#       - Capital Account       → tracks owner capital
+#       ... and many more.
+#
+#   When a brand NEW outlet is created in MediFlow, none of these ledgers
+#   exist yet. The very first sale/purchase will try to post to "Sales Account"
+#   or "Purchase Account" — if those ledgers don't exist, it crashes or posts
+#   nowhere. The Balance Sheet, P&L, and Trial Balance will all show ₹0
+#   or break completely.
+#
+# WHEN TO RUN:
+#   Run this ONCE for every new outlet after creating it in the admin panel:
+#
+#       python manage.py seed_ledgers
+#           → seeds for ALL outlets that are missing ledgers
+#
+#       python manage.py seed_ledgers --outlet <outlet_uuid>
+#           → seeds only a specific outlet
+#
+# IMPORTANT:
+#   - This command is SAFE to re-run. It uses get_or_create, so it will
+#     never create duplicates or overwrite existing data.
+#   - It does NOT copy data from other outlets. Each outlet gets its own
+#     clean, empty set of ledgers.
+#   - Without running this, accounting is broken from day 1 for any new outlet.
+#
+# =============================================================================
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
@@ -141,17 +185,17 @@ DEFAULT_LEDGERS = [
     ('GST Input (CGST)',        'Duties & Taxes',      'Dr', 0),
     ('GST Input (SGST)',        'Duties & Taxes',      'Dr', 0),
     ('GST Input (IGST)',        'Duties & Taxes',      'Dr', 0),  # Interstate purchases
-    ('GST Output (CGST)',       'Duties & Taxes',      'Cr', 0),
-    ('GST Output (SGST)',       'Duties & Taxes',      'Cr', 0),
-    ('GST Output (IGST)',       'Duties & Taxes',      'Cr', 0),  # Interstate sales
+    ('GST Payable CGST',        'Current Liabilities', 'Cr', 0),
+    ('GST Payable SGST',        'Current Liabilities', 'Cr', 0),
+    ('GST Payable IGST',        'Current Liabilities', 'Cr', 0),  # Interstate sales
     # Rate-specific GST ledgers (kept for backwards compatibility)
     ('GST Input (5%)',          'Duties & Taxes',      'Dr', 0),
     ('GST Input (12%)',         'Duties & Taxes',      'Dr', 0),
     ('GST Input (18%)',         'Duties & Taxes',      'Dr', 0),
-    ('GST Output (5%)',         'Duties & Taxes',      'Cr', 0),
-    ('GST Output (12%)',        'Duties & Taxes',      'Cr', 0),
-    ('GST Output (18%)',        'Duties & Taxes',      'Cr', 0),
-    ('GST Payable',             'Duties & Taxes',      'Cr', 0),
+    ('GST Payable (5%)',        'Current Liabilities', 'Cr', 0),
+    ('GST Payable (12%)',       'Current Liabilities', 'Cr', 0),
+    ('GST Payable (18%)',       'Current Liabilities', 'Cr', 0),
+    ('GST Payable',             'Current Liabilities', 'Cr', 0),
     ('TDS Payable',             'Duties & Taxes',      'Cr', 0),
     ('VAT Payable',             'Duties & Taxes',      'Cr', 0),
     ('Income Tax',              'Duties & Taxes',      'Cr', 0),
