@@ -247,6 +247,7 @@ export interface Customer {
     address?: string;
     dob?: string;
     gstin?: string;
+    state?: string;
     fixedDiscount: number;
     creditLimit: number;
     outstanding: number;
@@ -1065,7 +1066,7 @@ export interface GSTSettings {
 }
 
 export interface PrinterSettings {
-    printerType: 'a4' | 'thermal';
+    printerType: 'a4' | 'thermal' | 'thermal_80mm';
     thermalWidth: '58mm' | '80mm';
     autoPrintAfterBill: boolean;
     printCopies: number;

@@ -332,6 +332,7 @@ class CustomerSearchView(APIView):
                 'name': customer.name,
                 'phone': customer.phone,
                 'address': customer.address,
+                'state': customer.state or '',
                 'dob': customer.dob.isoformat() if customer.dob else None,
                 'gstin': customer.gstin,
                 'fixedDiscount': float(customer.fixed_discount),
@@ -390,6 +391,7 @@ class CustomerDetailView(APIView):
             'name': customer.name,
             'phone': customer.phone,
             'address': customer.address,
+            'state': customer.state or '',
             'dob': customer.dob.isoformat() if customer.dob else None,
             'gstin': customer.gstin,
             'fixedDiscount': float(customer.fixed_discount),
@@ -472,6 +474,9 @@ class CustomerDetailView(APIView):
         if 'isChronic' in request.data:
             customer.is_chronic = bool(request.data['isChronic'])
 
+        if 'state' in request.data:
+            customer.state = (request.data['state'] or '').strip()[:100]
+
         customer.save()
         logger.info(f"Updated customer {customer_id}")
 
@@ -487,6 +492,7 @@ class CustomerDetailView(APIView):
             'name': customer.name,
             'phone': customer.phone,
             'address': customer.address,
+            'state': customer.state or '',
             'dob': customer.dob.isoformat() if customer.dob else None,
             'gstin': customer.gstin,
             'fixedDiscount': float(customer.fixed_discount),
@@ -549,6 +555,7 @@ class CustomerListView(APIView):
                 'name': customer.name,
                 'phone': customer.phone,
                 'address': customer.address,
+                'state': customer.state or '',
                 'dob': customer.dob.isoformat() if customer.dob else None,
                 'gstin': customer.gstin,
                 'fixedDiscount': float(customer.fixed_discount),
@@ -582,6 +589,7 @@ class CustomerListView(APIView):
         name = (request.data.get('name') or '').strip()
         phone = (request.data.get('phone') or '').strip()
         address = request.data.get('address') or None
+        state = (request.data.get('state') or '').strip()[:100]
         dob = request.data.get('dob') or None
         gstin = (request.data.get('gstin') or '').strip().upper() or None
         is_chronic = bool(request.data.get('isChronic', False))
@@ -635,6 +643,7 @@ class CustomerListView(APIView):
                 name=name,
                 phone=phone,
                 address=address,
+                state=state,
                 dob=dob,
                 gstin=gstin,
                 is_chronic=is_chronic,
@@ -673,6 +682,7 @@ class CustomerListView(APIView):
             'name': customer.name,
             'phone': customer.phone,
             'address': customer.address,
+            'state': customer.state or '',
             'dob': customer.dob.isoformat() if customer.dob else None,
             'gstin': customer.gstin,
             'fixedDiscount': float(customer.fixed_discount),

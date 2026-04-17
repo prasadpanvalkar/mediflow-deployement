@@ -693,7 +693,110 @@ export default function ProfitLossPage() {
 
         const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `pl-${fromDate}-to-${toDate}.csv`; a.click();
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `pl-${fromDate}-to-${toDate}.csv`;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, [data, fromDate, toDate]);
+
+    // ── Excel Export ──────────────────────────────────────────────────────────
+    const handleExportExcel = useCallback(() => {
+        if (!data) return;
+
+        const ta = data.trading_account;
+        const pl = data.pl_account;
+
+        const fmtXl = (n: number) =>
+            '₹' + Math.abs(n).toLocaleString('en-IN', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+
+        let html = `
+            <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+            <head>
+                <meta charset="utf-8">
+                <!--[if gte mso 9]><xml>
+                  <x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+                    <x:Name>Profit &amp; Loss</x:Name>
+                    <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+                  </x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook>
+                </xml><![endif]-->
+            </head>
+            <body>
+            <table border="1" cellpadding="3" cellspacing="0" style="font-family: Calibri, sans-serif;">
+                <thead>
+                    <tr>
+                        <th colspan="6" style="text-align:center;font-size:16px;font-weight:bold;height:34px;vertical-align:middle;">
+                            Profit & Loss Account (${fromDate} to ${toDate})
+                        </th>
+                    </tr>
+                    <tr>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:100px;">Section</th>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:80px;">Side</th>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:200px;">Group</th>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:250px;">Account</th>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:120px;">Amount</th>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:80px;">Dr/Cr</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        const addRow = (section: string, side: string, group: string, name: string, amt: number, dc: string) => {
+            if (amt === 0) return;
+            html += `
+                <tr>
+                    <td>${section}</td>
+                    <td>${side}</td>
+                    <td>${group}</td>
+                    <td>${name}</td>
+                    <td style="text-align:right;">${fmtXl(amt)}</td>
+                    <td style="text-align:center;">${dc}</td>
+                </tr>`;
+        };
+
+        addRow('Trading', 'Dr', 'Opening Stock', 'Opening Stock', ta.dr.opening_stock.value, 'Dr');
+        ta.dr.purchases.ledgers.forEach(l => addRow('Trading', 'Dr', 'Purchases', l.name, l.value, 'Dr'));
+        ta.dr.direct_expenses.groups.forEach(g =>
+            g.ledgers.forEach(l => addRow('Trading', 'Dr', g.name, l.name, l.value, 'Dr')));
+        if (ta.dr.gross_profit > 0) addRow('Trading', 'Dr', 'Gross Profit c/d', 'Gross Profit c/d', ta.dr.gross_profit, 'Dr');
+
+        ta.cr.sales.ledgers.forEach(l => addRow('Trading', 'Cr', 'Sales', l.name, l.value, 'Cr'));
+        addRow('Trading', 'Cr', 'Closing Stock', 'Closing Stock', ta.cr.closing_stock.value, 'Cr');
+        if (ta.cr.gross_loss > 0) addRow('Trading', 'Cr', 'Gross Loss c/d', 'Gross Loss c/d', ta.cr.gross_loss, 'Cr');
+
+        if (pl.dr.gross_loss_bf > 0) addRow('P&L', 'Dr', 'Gross Loss b/f', 'Gross Loss b/f', pl.dr.gross_loss_bf, 'Dr');
+        pl.dr.indirect_expenses.groups.forEach(g =>
+            g.ledgers.forEach(l => addRow('P&L', 'Dr', g.name, l.name, l.value, 'Dr')));
+        if (pl.dr.net_profit > 0) addRow('P&L', 'Dr', 'Net Profit', 'Net Profit', pl.dr.net_profit, 'Dr');
+
+        if (pl.cr.gross_profit_bf > 0) addRow('P&L', 'Cr', 'Gross Profit b/f', 'Gross Profit b/f', pl.cr.gross_profit_bf, 'Cr');
+        pl.cr.direct_income.groups.forEach(g =>
+            g.ledgers.forEach(l => addRow('P&L', 'Cr', g.name, l.name, l.value, 'Cr')));
+        pl.cr.indirect_income.groups.forEach(g =>
+            g.ledgers.forEach(l => addRow('P&L', 'Cr', g.name, l.name, l.value, 'Cr')));
+        if (pl.cr.net_loss > 0) addRow('P&L', 'Cr', 'Net Loss', 'Net Loss', pl.cr.net_loss, 'Cr');
+
+        html += `
+                </tbody>
+            </table>
+            </body>
+            </html>`;
+
+        const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `pl-${fromDate}-to-${toDate}.xls`;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
     }, [data, fromDate, toDate]);
 
@@ -717,8 +820,6 @@ export default function ProfitLossPage() {
             <style>{`
                 .pl-print-company { display: none; }
                 @media print {
-                    body > *:not(#pl-print-root) { display: none !important; }
-                    #pl-print-root { display: block !important; padding: 0 !important; }
                     .no-print { display: none !important; }
                     .pl-print-company { display: block !important; text-align: center; margin-bottom: 0.5rem; }
                     .pl-print-company h1 { font-size: 1.3rem; font-weight: 700; }
@@ -761,6 +862,9 @@ export default function ProfitLossPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                         <Button variant="outline" size="sm" onClick={() => router.push('/dashboard/reports/balance-sheet')}>
                             <Scale className="mr-1.5 h-4 w-4" /> Switch to Balance Sheet
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={!data}>
+                            <Download className="mr-1.5 h-4 w-4" /> Export Excel
                         </Button>
                         <Button variant="outline" size="sm" onClick={handleExport} disabled={!data}>
                             <Download className="mr-1.5 h-4 w-4" /> Export CSV

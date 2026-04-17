@@ -82,7 +82,7 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
                     phone=party_ledger.phone or '',
                     address=party_ledger.address or '',
                     city=party_ledger.station or '',
-                    state='',
+                    state=party_ledger.state or '',   # ← carry state for interstate GST routing
                     gstin=party_ledger.gstin or None,
                     drug_license_no=party_ledger.dl_no or None,
                     is_active=True,

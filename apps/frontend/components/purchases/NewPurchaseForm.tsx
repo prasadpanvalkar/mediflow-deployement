@@ -96,7 +96,7 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
     const outletId    = useOutletId();
     const outlet      = useAuthStore((s) => s.outlet);
     const user        = useAuthStore((s) => s.user);
-    const gstType     = useSettingsStore((s) => s.gstType);
+    const outletState = useSettingsStore((s) => s.outletState) || outlet?.state || 'Maharashtra';
 
     // M5: scope the draft key to this outlet+user so drafts never bleed between
     // staff members or tenants sharing the same browser.
@@ -250,9 +250,14 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
         return s + base * (it.cess / 100);
     }, 0);
 
-    const sgst      = gstType === 'intrastate' ? totalGST / 2 : 0;
-    const cgst      = gstType === 'intrastate' ? totalGST / 2 : 0;
-    const igst      = gstType === 'interstate' ? totalGST     : 0;
+    // ── GST mode: interstate if partyLedger.state is set and != outlet state ──
+    const partyState = partyLedger?.state || '';
+    const isInterstate = !!(partyState && outletState &&
+        partyState.trim().toLowerCase() !== outletState.trim().toLowerCase());
+
+    const sgst      = !isInterstate ? totalGST / 2 : 0;
+    const cgst      = !isInterstate ? totalGST / 2 : 0;
+    const igst      = isInterstate  ? totalGST     : 0;
     const freight   = Number(watchedFreight) || 0;
     const preRound     = taxableValue + totalGST + totalCess + freight;
     const roundOff     = Math.round(preRound) - preRound;
@@ -698,7 +703,7 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
 
                         <Separator className="my-1" />
 
-                        {gstType === 'intrastate' ? (
+                        {!isInterstate ? (
                             <>
                                 <div className="flex justify-between text-xs text-slate-500">
                                     <span>SGST</span>
@@ -711,7 +716,7 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
                             </>
                         ) : (
                             <div className="flex justify-between text-xs text-slate-500">
-                                <span>IGST</span>
+                                <span>IGST <span className="text-[10px] text-orange-500 font-medium ml-1">Interstate</span></span>
                                 <span className="font-mono">{fmt(igst)}</span>
                             </div>
                         )}

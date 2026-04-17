@@ -188,11 +188,23 @@ function PrintDialog({
     const [heading, setHeading] = useState('Balance Sheet');
 
     const handlePrint = useCallback(() => {
+        onClose(); // Close dialog immediately
+        
         const root = document.getElementById('bs-print-root');
         if (root) {
             root.setAttribute('data-print-layout', layout);
             root.setAttribute('data-print-detail', detail);
         }
+        
+        // Temporarily override the summaryMode if user chose 'With Detail'
+        const isDetail = detail === 'with';
+        const expandBtnStyles = document.createElement('style');
+        expandBtnStyles.id = 'bs-force-expand';
+        if (isDetail) {
+            expandBtnStyles.textContent = `@media print { .print-ledger-row { display: block !important; } }`;
+            document.head.appendChild(expandBtnStyles);
+        }
+        
         // Inject page orientation style
         const existing = document.getElementById('bs-page-style');
         if (existing) existing.remove();
@@ -207,9 +219,13 @@ function PrintDialog({
         const companyEl = document.getElementById('bs-print-company');
         if (companyEl) companyEl.textContent = outletName;
 
-        window.print();
-        onClose();
-        setTimeout(() => document.getElementById('bs-page-style')?.remove(), 1500);
+        setTimeout(() => {
+            window.print();
+            setTimeout(() => {
+                document.getElementById('bs-page-style')?.remove();
+                document.getElementById('bs-force-expand')?.remove();
+            }, 1000);
+        }, 150); // give time for dialog animation to finish
     }, [layout, detail, heading, outletName, onClose]);
 
     return (
@@ -761,6 +777,97 @@ export default function BalanceSheetPage() {
         return d.getMonth(); // 0-11
     }, [asOnDate]);
 
+    // ── Excel Export ────────────────────────────────────────────────────────
+    const handleExportExcel = useCallback(() => {
+        if (!data) return;
+
+        const fmtXl = (n: number) =>
+            '₹' + Math.abs(n).toLocaleString('en-IN', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+
+        let html = `
+            <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+            <head>
+                <meta charset="utf-8">
+                <!--[if gte mso 9]><xml>
+                  <x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+                    <x:Name>Balance Sheet</x:Name>
+                    <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+                  </x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook>
+                </xml><![endif]-->
+            </head>
+            <body>
+            <table border="1" cellpadding="3" cellspacing="0" style="font-family: Calibri, sans-serif;">
+                <thead>
+                    <tr>
+                        <th colspan="7" style="text-align:center;font-size:16px;font-weight:bold;height:34px;vertical-align:middle;">
+                            Balance Sheet (As on ${asOnDate})
+                        </th>
+                    </tr>
+                    <tr>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:100px;">Side</th>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:150px;">Section</th>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:200px;">Group</th>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:250px;">Ledger</th>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:120px;">Opening Balance</th>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:120px;">Closing Balance</th>
+                        <th style="background-color:#f3f4f6;font-weight:bold;width:80px;">Dr/Cr</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        const addRow = (side: string, section: string, gName: string, lName: string, ob: number, cb: number, dc: string) => {
+            html += `
+                <tr>
+                    <td>${side}</td>
+                    <td>${section}</td>
+                    <td>${gName}</td>
+                    <td>${lName}</td>
+                    <td style="text-align:right;">${ob !== 0 ? fmtXl(ob) : '—'}</td>
+                    <td style="text-align:right;">${cb !== 0 ? fmtXl(cb) : '—'}</td>
+                    <td style="text-align:center;">${dc}</td>
+                </tr>`;
+        };
+
+        const addSection = (side: string, section: string, s: BSSide) => {
+            s.groups.forEach(g => {
+                if (!showZero && g.closing_balance === 0) return;
+                g.ledgers.forEach(l => {
+                    if (!showZero && l.closing_balance === 0) return;
+                    addRow(side, section, g.name, l.name, l.opening_balance, l.closing_balance, String(l.balance_type));
+                });
+            });
+        };
+
+        addSection('Liabilities', 'Capital', data.liabilities.capital);
+        addSection('Liabilities', 'Loans', data.liabilities.loans);
+        addSection('Liabilities', 'Current Liabilities', data.liabilities.current_liabilities);
+        addSection('Assets', 'Fixed Assets', data.assets.fixed_assets);
+        addSection('Assets', 'Investments', data.assets.investments);
+        addSection('Assets', 'Current Assets', data.assets.current_assets);
+        addRow('Assets', 'Stock in Hand', 'Stock in Hand', 'Closing Stock', 0, data.assets.stock_in_hand.value, 'Dr');
+
+        html += `
+                </tbody>
+            </table>
+            </body>
+            </html>`;
+
+        const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `balance-sheet-${asOnDate}.xls`;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, [data, asOnDate, showZero]);
+
     // ── CSV Export ─────────────────────────────────────────────────────────
     const handleExport = useCallback(() => {
         if (!data) return;
@@ -783,7 +890,13 @@ export default function BalanceSheetPage() {
         rows.push(`"Assets","Stock in Hand","Stock in Hand","Closing Stock",0,${data.assets.stock_in_hand.value},Dr`);
         const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `balance-sheet-${asOnDate}.csv`; a.click();
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `balance-sheet-${asOnDate}.csv`;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
     }, [data, asOnDate, showZero]);
 
@@ -806,8 +919,6 @@ export default function BalanceSheetPage() {
             <style>{`
                 .bs-print-company { display: none; }
                 @media print {
-                    body > *:not(#bs-print-root) { display: none !important; }
-                    #bs-print-root { display: block !important; padding: 0 !important; }
                     .no-print { display: none !important; }
 
                     /* Company / heading header */
@@ -864,6 +975,9 @@ export default function BalanceSheetPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                         <Button variant="outline" size="sm" onClick={() => router.push('/dashboard/reports/profit-loss')}>
                             <BarChart2 className="mr-1.5 h-4 w-4" /> Switch to P&L
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={!data}>
+                            <Download className="mr-1.5 h-4 w-4" /> Export Excel
                         </Button>
                         <Button variant="outline" size="sm" onClick={handleExport} disabled={!data}>
                             <Download className="mr-1.5 h-4 w-4" /> Export CSV

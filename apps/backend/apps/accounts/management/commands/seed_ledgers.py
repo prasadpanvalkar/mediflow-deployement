@@ -72,6 +72,15 @@ PRIMARY_GROUPS = [
     ('Duties & Taxes',      'liability'),
 ]
 
+# Tax sub-groups that go UNDER 'Duties & Taxes' parent.
+# These hold rate-specific Input (asset) ledgers.
+# nature='asset' because GST Input is recoverable from government.
+TAX_SUB_GROUPS = [
+    ('Tax-CGST', 'asset'),
+    ('Tax-SGST', 'asset'),
+    ('Tax-IGST', 'asset'),
+]
+
 # (name, group_name, balance_type, opening_balance)
 DEFAULT_LEDGERS = [
     # ── CASH & BANK ──
@@ -180,8 +189,9 @@ DEFAULT_LEDGERS = [
     ('Advance from Customer',   'Current Liabilities', 'Cr', 0),
     ('Bills Payable',           'Current Liabilities', 'Cr', 0),
 
-    # ── DUTIES & TAXES ──
-    # Consolidated GST ledgers for journal posting
+    # ── DUTIES & TAXES — Consolidated fallback ledgers ──
+    # These are kept for backwards compatibility and as fallbacks
+    # when rate-specific ledgers are not found.
     ('GST Input (CGST)',        'Duties & Taxes',      'Dr', 0),
     ('GST Input (SGST)',        'Duties & Taxes',      'Dr', 0),
     ('GST Input (IGST)',        'Duties & Taxes',      'Dr', 0),  # Interstate purchases
@@ -216,6 +226,57 @@ DEFAULT_LEDGERS = [
     ('UPI Collections',         'Bank Accounts',       'Dr', 0),   # UPI payment receipts
     ('Card/POS Settlement',     'Bank Accounts',       'Dr', 0),   # Card/POS payment receipts
     ('Round Off',               'Indirect Incomes',    'Cr', 0),   # Penny rounding adjustments
+    ('Ledger Adjustment',       'Indirect Incomes',    'Cr', 0),   # Purchase ledger adjustments
+    ('Purchase Returns',        'Purchase Account',    'Cr', 0),   # Purchase return (Debit Note)
+]
+
+# ── RATE-SPECIFIC GST PAYABLE LEDGERS (Liability — money collected from customer) ──
+# These are credit-nature ledgers grouped under Current Liabilities.
+# Format: (name, group_name, balance_type, opening_balance)
+RATE_SPECIFIC_GST_PAYABLE = [
+    # CGST Payable (intrastate sales — half the total GST rate)
+    ('CGST Payable 2.5%',   'Current Liabilities', 'Cr', 0),   # total GST 5%
+    ('CGST Payable 6%',     'Current Liabilities', 'Cr', 0),   # total GST 12%
+    ('CGST Payable 9%',     'Current Liabilities', 'Cr', 0),   # total GST 18%
+    ('CGST Payable 14%',    'Current Liabilities', 'Cr', 0),   # total GST 28%
+    ('CGST Payable 20%',    'Current Liabilities', 'Cr', 0),   # total GST 40%
+
+    # SGST Payable (intrastate sales — half the total GST rate)
+    ('SGST Payable 2.5%',   'Current Liabilities', 'Cr', 0),
+    ('SGST Payable 6%',     'Current Liabilities', 'Cr', 0),
+    ('SGST Payable 9%',     'Current Liabilities', 'Cr', 0),
+    ('SGST Payable 14%',    'Current Liabilities', 'Cr', 0),
+    ('SGST Payable 20%',    'Current Liabilities', 'Cr', 0),
+
+    # IGST Payable (interstate sales — full GST rate)
+    ('IGST Payable 5%',     'Current Liabilities', 'Cr', 0),
+    ('IGST Payable 12%',    'Current Liabilities', 'Cr', 0),
+    ('IGST Payable 18%',    'Current Liabilities', 'Cr', 0),
+    ('IGST Payable 28%',    'Current Liabilities', 'Cr', 0),
+]
+
+# ── RATE-SPECIFIC GST INPUT LEDGERS (Asset — recoverable from government) ──
+# These are debit-nature ledgers grouped under Tax-CGST / Tax-SGST / Tax-IGST.
+RATE_SPECIFIC_GST_INPUT = [
+    # CGST Input (purchases — half the total GST rate)
+    ('CGST Input 2.5%',     'Tax-CGST', 'Dr', 0),
+    ('CGST Input 6%',       'Tax-CGST', 'Dr', 0),
+    ('CGST Input 9%',       'Tax-CGST', 'Dr', 0),
+    ('CGST Input 14%',      'Tax-CGST', 'Dr', 0),
+    ('CGST Input 20%',      'Tax-CGST', 'Dr', 0),
+
+    # SGST Input (purchases — half the total GST rate)
+    ('SGST Input 2.5%',     'Tax-SGST', 'Dr', 0),
+    ('SGST Input 6%',       'Tax-SGST', 'Dr', 0),
+    ('SGST Input 9%',       'Tax-SGST', 'Dr', 0),
+    ('SGST Input 14%',      'Tax-SGST', 'Dr', 0),
+    ('SGST Input 20%',      'Tax-SGST', 'Dr', 0),
+
+    # IGST Input (interstate purchases — full GST rate)
+    ('IGST Input 5%',       'Tax-IGST', 'Dr', 0),
+    ('IGST Input 12%',      'Tax-IGST', 'Dr', 0),
+    ('IGST Input 18%',      'Tax-IGST', 'Dr', 0),
+    ('IGST Input 28%',      'Tax-IGST', 'Dr', 0),
 ]
 
 
@@ -231,11 +292,13 @@ def seed_outlet_ledgers(outlet):
     from apps.purchases.models import Distributor
 
     groups_created = 0
+    sub_groups_created = 0
     ledgers_created = 0
+    rate_ledgers_created = 0
     customers_synced = 0
     distributors_synced = 0
 
-    # ── STEP 1: Create all 21 primary groups ──
+    # ── STEP 1: Create all primary groups ──
     group_map = {}
     for name, nature in PRIMARY_GROUPS:
         group, created = LedgerGroup.objects.get_or_create(
@@ -250,6 +313,23 @@ def seed_outlet_ledgers(outlet):
         if created:
             groups_created += 1
         group_map[name] = group
+
+    # ── STEP 1b: Create Tax sub-groups under 'Duties & Taxes' parent ──
+    duties_taxes_group = group_map.get('Duties & Taxes')
+    if duties_taxes_group:
+        for sub_name, sub_nature in TAX_SUB_GROUPS:
+            sub_group, created = LedgerGroup.objects.get_or_create(
+                outlet=outlet,
+                name=sub_name,
+                defaults={
+                    'nature': sub_nature,
+                    'is_system': True,
+                    'parent': duties_taxes_group,
+                },
+            )
+            if created:
+                sub_groups_created += 1
+            group_map[sub_name] = sub_group
 
     # ── STEP 2: Create all default ledgers ──
     for name, group_name, balance_type, opening_balance in DEFAULT_LEDGERS:
@@ -269,6 +349,44 @@ def seed_outlet_ledgers(outlet):
         )
         if created:
             ledgers_created += 1
+
+    # ── STEP 2b: Create rate-specific GST Payable ledgers (liability) ──
+    for name, group_name, balance_type, opening_balance in RATE_SPECIFIC_GST_PAYABLE:
+        group = group_map.get(group_name)
+        if not group:
+            continue
+        _, created = Ledger.objects.get_or_create(
+            outlet=outlet,
+            name=name,
+            defaults={
+                'group': group,
+                'balance_type': balance_type,
+                'opening_balance': opening_balance,
+                'current_balance': opening_balance,
+                'is_system': True,
+            },
+        )
+        if created:
+            rate_ledgers_created += 1
+
+    # ── STEP 2c: Create rate-specific GST Input ledgers (asset) ──
+    for name, group_name, balance_type, opening_balance in RATE_SPECIFIC_GST_INPUT:
+        group = group_map.get(group_name)
+        if not group:
+            continue
+        _, created = Ledger.objects.get_or_create(
+            outlet=outlet,
+            name=name,
+            defaults={
+                'group': group,
+                'balance_type': balance_type,
+                'opening_balance': opening_balance,
+                'current_balance': opening_balance,
+                'is_system': True,
+            },
+        )
+        if created:
+            rate_ledgers_created += 1
 
     # ── STEP 3: Sync customers as Sundry Debtors ──
     debtors_group = group_map.get('Sundry Debtors')
@@ -311,7 +429,9 @@ def seed_outlet_ledgers(outlet):
 
     return {
         'groups_created': groups_created,
+        'sub_groups_created': sub_groups_created,
         'ledgers_created': ledgers_created,
+        'rate_ledgers_created': rate_ledgers_created,
         'customers_synced': customers_synced,
         'distributors_synced': distributors_synced,
     }
@@ -320,8 +440,24 @@ def seed_outlet_ledgers(outlet):
 class Command(BaseCommand):
     help = 'Seed all standard Tally/Marg ledger groups and ledgers for every outlet'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--outlet',
+            type=str,
+            dest='outlet_id',
+            help='UUID of a specific outlet to seed (default: all active outlets)',
+        )
+
     def handle(self, *args, **options):
-        outlets = Outlet.objects.filter(is_active=True)
+        outlet_id = options.get('outlet_id')
+        if outlet_id:
+            outlets = Outlet.objects.filter(id=outlet_id, is_active=True)
+            if not outlets.exists():
+                self.stdout.write(self.style.ERROR(f'No active outlet found with id={outlet_id}'))
+                return
+        else:
+            outlets = Outlet.objects.filter(is_active=True)
+
         if not outlets.exists():
             self.stdout.write(self.style.WARNING('No active outlets found.'))
             return
@@ -329,10 +465,12 @@ class Command(BaseCommand):
         for outlet in outlets:
             counts = seed_outlet_ledgers(outlet)
             self.stdout.write(f'\nOutlet: {outlet.name}')
-            self.stdout.write(f'  Groups created:       {counts["groups_created"]}')
-            self.stdout.write(f'  Ledgers created:      {counts["ledgers_created"]}')
-            self.stdout.write(f'  Customers synced:     {counts["customers_synced"]}')
-            self.stdout.write(f'  Distributors synced:  {counts["distributors_synced"]}')
+            self.stdout.write(f'  Primary groups created:    {counts["groups_created"]}')
+            self.stdout.write(f'  Tax sub-groups created:    {counts["sub_groups_created"]}')
+            self.stdout.write(f'  Standard ledgers created:  {counts["ledgers_created"]}')
+            self.stdout.write(f'  Rate-specific GST ledgers: {counts["rate_ledgers_created"]}')
+            self.stdout.write(f'  Customers synced:          {counts["customers_synced"]}')
+            self.stdout.write(f'  Distributors synced:       {counts["distributors_synced"]}')
 
         from apps.accounts.models import LedgerGroup, Ledger
         self.stdout.write(self.style.SUCCESS(

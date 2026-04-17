@@ -139,9 +139,30 @@ class DistributorListView(APIView):
             balance_type=request.data.get('balanceType', 'CR'),
             is_active=True,
         )
-        
+
+        # Auto-create the linked Sundry Creditor ledger so the distributor
+        # appears in LedgerPicker immediately and ledger.state is synced.
+        try:
+            from apps.accounts.models import LedgerGroup
+            sc_group = LedgerGroup.objects.filter(outlet=outlet, name='Sundry Creditors').first()
+            if sc_group:
+                Ledger.objects.get_or_create(
+                    outlet=outlet,
+                    linked_distributor=distributor,
+                    defaults={
+                        'name': distributor.name,
+                        'group': sc_group,
+                        'phone': distributor.phone or '',
+                        'gstin': distributor.gstin or '',
+                        'address': distributor.address or '',
+                        'state': distributor.state or '',
+                    },
+                )
+        except Exception as e:
+            logger.warning('Could not auto-create ledger for distributor %s: %s', distributor.id, e)
+
         logger.info(f"Created distributor {distributor.id} ({distributor.name})")
-        
+
         result = {
             'id': str(distributor.id),
             'name': distributor.name,
@@ -254,6 +275,12 @@ class DistributorDetailView(APIView):
                 setattr(distributor, field, val)
 
         distributor.save()
+
+        # Sync state to the linked Ledger so LedgerPicker always has fresh state
+        Ledger.objects.filter(outlet=outlet, linked_distributor=distributor).update(
+            state=distributor.state or ''
+        )
+
         logger.info(f"Updated distributor {distributor_id}")
 
         result = {

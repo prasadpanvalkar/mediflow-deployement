@@ -46,7 +46,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <OfflineBanner />
 
             {/* Desktop Sidebar */}
-            <div className="hidden lg:block">
+            <div className="hidden lg:block print:hidden">
                 <div className="fixed top-0 left-0 h-full z-30">
                     <Sidebar
                         isCollapsed={isSidebarCollapsed}
@@ -69,14 +69,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* Main content area */}
             <div className={cn(
                 "transition-all duration-200 flex flex-col min-h-[100dvh]",
-                "lg:ml-64",
-                isSidebarCollapsed && "lg:ml-16"
+                "lg:ml-64 print:ml-0",
+                isSidebarCollapsed && "lg:ml-16 print:ml-0"
             )}>
-                <Header
-                    onMobileMenuToggle={() => setIsMobileSheetOpen(true)}
-                    isSidebarCollapsed={isSidebarCollapsed}
-                />
-                <main className="flex-1 p-4 sm:p-6 overflow-x-hidden">
+                <div className="print:hidden">
+                    <Header
+                        onMobileMenuToggle={() => setIsMobileSheetOpen(true)}
+                        isSidebarCollapsed={isSidebarCollapsed}
+                    />
+                </div>
+                <main className="flex-1 p-4 sm:p-6 print:p-0 overflow-x-hidden print:overflow-visible">
                     {children}
                 </main>
             </div>

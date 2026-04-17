@@ -835,7 +835,8 @@ class BalanceSheetView(APIView):
         ASSETS_INVESTMENTS = {'Investments'}
         ASSETS_CURRENT = {
             'Cash in Hand', 'Bank Accounts', 'Sundry Debtors',
-            'Current Assets', 'Duties & Taxes',  # GST Input = asset (Govt owes us)
+            'Current Assets', 'Duties & Taxes',  # GST Input (fallback ledgers) = asset (Govt owes us)
+            'Tax-CGST', 'Tax-SGST', 'Tax-IGST',  # Rate-specific GST Input sub-groups = asset
             'Stock in Hand',
         }
         # Sales Account / income / expense groups → used for Net Profit only
@@ -1221,8 +1222,9 @@ class ProfitLossView(APIView):
         purchase_ledgers = ledger_rows_for_group('Purchase Account', 'dr')
         total_purchases = sum(Decimal(str(l['value'])) for l in purchase_ledgers)
 
-        # ── DIRECT EXPENSES (excluding Purchase Account) ───────────────────────
-        DIRECT_EXP_GROUPS = ['Direct Expenses', 'Duties & Taxes']
+        # ── DIRECT EXPENSES (true cost expenses only — no GST/tax groups) ──────────
+        # Duties & Taxes is a Balance Sheet item (GST Input = asset), NOT a P&L expense.
+        DIRECT_EXP_GROUPS = ['Direct Expenses']
         direct_exp_blocks, total_direct_exp = build_group_block(DIRECT_EXP_GROUPS, 'dr')
 
         # ── INDIRECT EXPENSES ─────────────────────────────────────────────────

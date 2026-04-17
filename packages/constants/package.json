@@ -1,5 +1,11 @@
 {
     "name": "@mediflow/constants",
     "version": "0.0.1",
-    "main": "./index.ts"
+    "main": "./index.ts",
+    "exports": {
+        ".": {
+            "types": "./index.ts",
+            "default": "./index.ts"
+        }
+    }
 }

@@ -39,7 +39,7 @@ export const gstSettingsSchema = z.object({
 });
 
 export const printerSettingsSchema = z.object({
-    printerType: z.enum(['a4', 'thermal']),
+    printerType: z.enum(['a4', 'thermal', 'thermal_80mm']),
     thermalWidth: z.enum(['58mm', '80mm']),
     autoPrintAfterBill: z.boolean(),
     printCopies: z.number().int().min(1).max(3),

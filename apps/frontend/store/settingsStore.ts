@@ -92,7 +92,7 @@ interface SettingsState extends
     setOutletId: (id: string) => void;
     toggleSidebar: () => void;
     setSidebarCollapsed: (v: boolean) => void;
-    setPrinterType: (t: 'a4' | 'thermal') => void;
+    setPrinterType: (t: 'a4' | 'thermal' | 'thermal_80mm') => void;
     setKioskPhotoCapture: (v: boolean) => void;
     setKioskAutoResetSeconds: (v: number) => void;
     setAttendanceGraceMinutes: (v: number) => void;

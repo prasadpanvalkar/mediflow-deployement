@@ -60,7 +60,7 @@ const defaultForm = (): FormState => ({
     email: '',
     address: '',
     city: '',
-    state: 'Maharashtra',
+    state: '',          // no default — user must explicitly select
     creditDays: 30,
     openingBalance: 0,
     balanceType: 'CR',
@@ -203,13 +203,13 @@ function DistributorForm({
                             />
                         </div>
                         <div className="space-y-1.5">
-                            <Label className="text-sm">State</Label>
+                            <Label className="text-sm">State <span className="text-red-500">*</span></Label>
                             <Select
-                                value={form.state ?? 'Maharashtra'}
+                                value={form.state ?? ''}
                                 onValueChange={(v) => set('state', v)}
                             >
-                                <SelectTrigger>
-                                    <SelectValue />
+                                <SelectTrigger className={!form.state ? "border-red-300" : ""}>
+                                    <SelectValue placeholder="Select state…" />
                                 </SelectTrigger>
                                 <SelectContent className="max-h-60">
                                     {INDIAN_STATES.map((s) => (
@@ -494,6 +494,10 @@ export function DistributorsTab() {
             toast({ variant: 'destructive', title: 'Name and phone are required' });
             return;
         }
+        if (!form.state?.trim()) {
+            toast({ variant: 'destructive', title: 'State is required', description: 'Select the distributor\'s state for correct GST (IGST / CGST+SGST) routing.' });
+            return;
+        }
         try {
             await createDist.mutateAsync({ ...form, outletId } as any);
             toast({ title: 'Distributor added ✓' });
@@ -506,6 +510,10 @@ export function DistributorsTab() {
     const handleUpdate = async (id: string, form: FormState) => {
         if (!form.name?.trim() || !form.phone?.trim()) {
             toast({ variant: 'destructive', title: 'Name and phone are required' });
+            return;
+        }
+        if (!form.state?.trim()) {
+            toast({ variant: 'destructive', title: 'State is required', description: 'Select the distributor\'s state for correct GST (IGST / CGST+SGST) routing.' });
             return;
         }
         try {

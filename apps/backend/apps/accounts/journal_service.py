@@ -16,6 +16,39 @@ from apps.accounts.services import LedgerService
 logger = logging.getLogger(__name__)
 
 
+# ── Standard GST rate mapping ──────────────────────────────────────────────────
+# Maps total GST rate → (CGST component rate, SGST component rate)
+# Both components are equal halves of the total rate.
+GST_RATE_TO_COMPONENTS = {
+    Decimal('5'):  (Decimal('2.5'), Decimal('2.5')),
+    Decimal('12'): (Decimal('6'),   Decimal('6')),
+    Decimal('18'): (Decimal('9'),   Decimal('9')),
+    Decimal('28'): (Decimal('14'),  Decimal('14')),
+    Decimal('40'): (Decimal('20'),  Decimal('20')),
+}
+
+# Standard rates for snapping purchase invoice inferred rates
+STANDARD_GST_RATES = [Decimal('5'), Decimal('12'), Decimal('18'), Decimal('28'), Decimal('40')]
+
+# Outlet home state (Maharashtra). Used as fallback when outlet.state can't be read.
+_DEFAULT_HOME_STATE = 'Maharashtra'
+
+
+def _is_interstate(party_state: str, outlet_state: str) -> bool:
+    """
+    Return True if the transaction is INTERSTATE (→ IGST applies).
+    Return False if INTRASTATE (→ CGST + SGST applies).
+
+    Rules:
+      - Both states must be non-empty for a definitive comparison.
+      - If either state is blank/None → default to INTRASTATE (safe fallback, no IGST crash).
+      - Comparison is case-insensitive and strips whitespace.
+    """
+    if not party_state or not outlet_state:
+        return False  # safe fallback: intrastate
+    return party_state.strip().lower() != outlet_state.strip().lower()
+
+
 def _get_ledger(outlet, name):
     """
     Fetch a system ledger by name within an outlet.
@@ -28,6 +61,45 @@ def _get_ledger(outlet, name):
             f"Ledger '{name}' not found for outlet '{outlet.name}' ({outlet.id}). "
             f"Run: python manage.py seed_ledgers"
         )
+
+
+def _get_ledger_safe(outlet, name, fallback_name=None):
+    """
+    Fetch a ledger by name, returning fallback or None on failure.
+    NEVER raises — used for rate-specific GST ledger lookups where
+    a missing ledger must never crash the invoice save.
+    """
+    try:
+        return Ledger.objects.select_for_update().get(outlet=outlet, name=name)
+    except Ledger.DoesNotExist:
+        if fallback_name:
+            try:
+                return Ledger.objects.select_for_update().get(outlet=outlet, name=fallback_name)
+            except Ledger.DoesNotExist:
+                logger.warning(
+                    f"GST ledger '{name}' AND fallback '{fallback_name}' both not found "
+                    f"for outlet '{outlet.name}'. Run seed_ledgers."
+                )
+                return None
+        logger.warning(
+            f"GST ledger '{name}' not found for outlet '{outlet.name}'. Run seed_ledgers."
+        )
+        return None
+
+
+def _snap_to_standard_rate(rate):
+    """
+    Round a computed GST rate to the nearest standard rate (5, 12, 18, 28, 40).
+    Used when inferring rate from purchase invoice totals.
+    Returns None if the rate is too far from any standard rate.
+    """
+    if rate <= 0:
+        return None
+    closest = min(STANDARD_GST_RATES, key=lambda r: abs(r - rate))
+    # Accept if within 1 percentage point of a standard rate
+    if abs(closest - rate) <= Decimal('1'):
+        return closest
+    return None
 
 
 def _get_customer_ledger(outlet, customer):
@@ -79,6 +151,273 @@ def _create_lines_and_update_balances(je, lines):
             LedgerService.update_balance(ledger.id, Decimal('0'), amount)
 
 
+def _build_sale_gst_lines(outlet, sale_invoice):
+    """
+    Build GST credit lines for a sale invoice, using rate-specific ledgers.
+
+    Interstate vs Intrastate determination:
+      - Read outlet.state and customer.state (from sale_invoice.customer).
+      - If customer state != outlet state → INTERSTATE → IGST Payable only.
+      - If same state or either state is blank → INTRASTATE → CGST + SGST Payable.
+      - If igst_amount > 0 on the invoice → always force IGST path.
+
+    Rate strategy:
+      1. Read gst_rate directly from each SaleItem (no floating-point division).
+      2. Group gst_amount by rate bucket to handle mixed-rate invoices.
+      3. For each rate bucket, post to rate-specific ledger.
+      4. If rate-specific ledger not found → fallback to generic.
+
+    NEVER raises — errors are logged and generic fallback is used.
+    """
+    lines = []
+
+    igst_amount = sale_invoice.igst_amount or Decimal('0')
+    cgst_amount = sale_invoice.cgst_amount or Decimal('0')
+    sgst_amount = sale_invoice.sgst_amount or Decimal('0')
+
+    try:
+        # ── Determine interstate or intrastate ──────────────────────────────
+        outlet_state = getattr(outlet, 'state', '') or ''
+        customer = getattr(sale_invoice, 'customer', None)
+        customer_state = ''
+        if customer:
+            customer_state = getattr(customer, 'state', '') or ''
+
+        interstate = _is_interstate(customer_state, outlet_state)
+
+        if igst_amount > 0 or interstate:
+            # ── INTERSTATE: post to IGST Payable ─────────────────────────
+            # Use invoice-level igst_amount if > 0, otherwise use cgst+sgst total as proxy
+            total_igst = igst_amount if igst_amount > 0 else (cgst_amount + sgst_amount)
+
+            # Determine IGST rate from invoice header field
+            igst_rate = sale_invoice.igst or Decimal('0')
+            snapped_rate = _snap_to_standard_rate(igst_rate) if igst_rate > 0 else None
+
+            if snapped_rate:
+                igst_ledger = _get_ledger_safe(outlet, f'IGST Payable {snapped_rate}%', 'GST Payable IGST')
+            else:
+                # Try to infer from sale items
+                try:
+                    total_rate = None
+                    items = list(sale_invoice.items.all())
+                    rates = set()
+                    for item in items:
+                        r = item.gst_rate or Decimal('0')
+                        if r > 0:
+                            rates.add(r)
+                    if len(rates) == 1:
+                        total_rate = rates.pop()
+                        snapped_rate = _snap_to_standard_rate(total_rate)
+                except Exception:
+                    pass
+
+                if snapped_rate:
+                    igst_ledger = _get_ledger_safe(outlet, f'IGST Payable {snapped_rate}%', 'GST Payable IGST')
+                else:
+                    igst_ledger = _get_ledger_safe(outlet, 'GST Payable IGST')
+
+            if igst_ledger and total_igst > 0:
+                lines.append(('credit', igst_ledger, total_igst))
+
+        else:
+            # ── INTRASTATE: CGST + SGST per rate bucket ───────────────────
+            if cgst_amount > 0 or sgst_amount > 0:
+                # Build rate-bucket map: {total_gst_rate: gst_amount}
+                rate_buckets = {}
+                try:
+                    items = list(sale_invoice.items.all())
+                    for item in items:
+                        rate = item.gst_rate or Decimal('0')
+                        if rate > 0:
+                            gst_amt = item.gst_amount or Decimal('0')
+                            rate_buckets[rate] = rate_buckets.get(rate, Decimal('0')) + gst_amt
+                except Exception as e:
+                    logger.warning(
+                        f"Sale {sale_invoice.id}: could not read items for GST rate inference: {e}. "
+                        f"Falling back to invoice-level cgst/sgst amounts."
+                    )
+
+                if rate_buckets:
+                    # Post per rate bucket using rate-specific ledgers
+                    for total_rate, bucket_gst in rate_buckets.items():
+                        if bucket_gst <= 0:
+                            continue
+
+                        components = GST_RATE_TO_COMPONENTS.get(total_rate)
+                        if components:
+                            cgst_rate, sgst_rate = components
+                        else:
+                            half = (total_rate / 2).quantize(Decimal('0.01'))
+                            cgst_rate, sgst_rate = half, half
+
+                        bucket_cgst = (bucket_gst / 2).quantize(Decimal('0.01'))
+                        bucket_sgst = bucket_gst - bucket_cgst
+
+                        if bucket_cgst > 0:
+                            cgst_ledger = _get_ledger_safe(
+                                outlet, f'CGST Payable {cgst_rate}%', 'GST Payable CGST'
+                            )
+                            if cgst_ledger:
+                                lines.append(('credit', cgst_ledger, bucket_cgst))
+
+                        if bucket_sgst > 0:
+                            sgst_ledger = _get_ledger_safe(
+                                outlet, f'SGST Payable {sgst_rate}%', 'GST Payable SGST'
+                            )
+                            if sgst_ledger:
+                                lines.append(('credit', sgst_ledger, bucket_sgst))
+
+                else:
+                    # No items with rates — use invoice-level CGST/SGST totals
+                    cgst_rate_pct = sale_invoice.cgst or Decimal('0')
+                    sgst_rate_pct = sale_invoice.sgst or Decimal('0')
+
+                    if cgst_rate_pct > 0:
+                        cgst_ledger = _get_ledger_safe(
+                            outlet, f'CGST Payable {cgst_rate_pct}%', 'GST Payable CGST'
+                        )
+                    else:
+                        cgst_ledger = _get_ledger_safe(outlet, 'GST Payable CGST')
+
+                    if sgst_rate_pct > 0:
+                        sgst_ledger = _get_ledger_safe(
+                            outlet, f'SGST Payable {sgst_rate_pct}%', 'GST Payable SGST'
+                        )
+                    else:
+                        sgst_ledger = _get_ledger_safe(outlet, 'GST Payable SGST')
+
+                    if cgst_amount > 0 and cgst_ledger:
+                        lines.append(('credit', cgst_ledger, cgst_amount))
+                    if sgst_amount > 0 and sgst_ledger:
+                        lines.append(('credit', sgst_ledger, sgst_amount))
+
+    except Exception as e:
+        logger.error(
+            f"Sale {sale_invoice.id}: error building GST lines: {e}. "
+            f"Attempting hard fallback to generic GST Payable ledgers."
+        )
+        # Hard fallback: generic ledgers, amounts from invoice header
+        try:
+            if igst_amount > 0:
+                igst_ledger = _get_ledger_safe(outlet, 'GST Payable IGST')
+                if igst_ledger:
+                    lines = [('credit', igst_ledger, igst_amount)]
+            else:
+                lines = []
+                if cgst_amount > 0:
+                    cgst_ledger = _get_ledger_safe(outlet, 'GST Payable CGST')
+                    if cgst_ledger:
+                        lines.append(('credit', cgst_ledger, cgst_amount))
+                if sgst_amount > 0:
+                    sgst_ledger = _get_ledger_safe(outlet, 'GST Payable SGST')
+                    if sgst_ledger:
+                        lines.append(('credit', sgst_ledger, sgst_amount))
+        except Exception as e2:
+            logger.error(
+                f"Sale {sale_invoice.id}: hard fallback also failed: {e2}. "
+                f"No GST lines will be posted."
+            )
+            lines = []
+
+    return lines
+
+
+def _build_purchase_gst_lines(outlet, purchase_invoice, gst_amount):
+    """
+    Build GST debit lines for a purchase invoice, using rate-specific ledgers.
+
+    Interstate vs Intrastate determination:
+      - Read outlet.state and distributor.state (from purchase_invoice.distributor).
+      - If distributor state != outlet state → INTERSTATE → IGST Input only.
+      - If same state or either state is blank → INTRASTATE → CGST + SGST Input.
+
+    Rate strategy:
+      - Infer total GST rate by dividing gst_amount / taxable_amount * 100.
+      - Snap to nearest standard rate (5, 12, 18, 28, 40) within ±1%.
+      - Post to rate-specific ledger; fallback to generic if not found.
+
+    NEVER raises.
+    """
+    lines = []
+    if gst_amount <= 0:
+        return lines
+
+    try:
+        # ── Determine interstate or intrastate ──────────────────────────────
+        outlet_state = getattr(outlet, 'state', '') or ''
+        distributor = getattr(purchase_invoice, 'distributor', None)
+        distributor_state = ''
+        if distributor:
+            distributor_state = getattr(distributor, 'state', '') or ''
+
+        interstate = _is_interstate(distributor_state, outlet_state)
+
+        # ── Rate inference ──────────────────────────────────────────────────
+        taxable = purchase_invoice.taxable_amount or Decimal('0')
+        snapped_rate = None
+        if taxable > 0:
+            inferred_rate = (gst_amount / taxable * 100).quantize(Decimal('0.01'))
+            snapped_rate = _snap_to_standard_rate(inferred_rate)
+
+        if interstate:
+            # ── INTERSTATE: post to IGST Input ──────────────────────────
+            if snapped_rate and snapped_rate in GST_RATE_TO_COMPONENTS:
+                # For IGST, the full rate = snapped_rate (not halved)
+                igst_ledger = _get_ledger_safe(
+                    outlet, f'IGST Input {snapped_rate}%', 'GST Input (IGST)'
+                )
+            else:
+                igst_ledger = _get_ledger_safe(outlet, 'GST Input (IGST)')
+
+            if igst_ledger:
+                lines.append(('debit', igst_ledger, gst_amount))
+
+        else:
+            # ── INTRASTATE: post to CGST + SGST Input ────────────────────
+            cgst_input = (gst_amount / 2).quantize(Decimal('0.01'))
+            sgst_input = gst_amount - cgst_input
+
+            if snapped_rate and snapped_rate in GST_RATE_TO_COMPONENTS:
+                cgst_rate, sgst_rate = GST_RATE_TO_COMPONENTS[snapped_rate]
+                cgst_ledger = _get_ledger_safe(
+                    outlet, f'CGST Input {cgst_rate}%', 'GST Input (CGST)'
+                )
+                sgst_ledger = _get_ledger_safe(
+                    outlet, f'SGST Input {sgst_rate}%', 'GST Input (SGST)'
+                )
+            else:
+                cgst_ledger = _get_ledger_safe(outlet, 'GST Input (CGST)')
+                sgst_ledger = _get_ledger_safe(outlet, 'GST Input (SGST)')
+
+            if cgst_ledger:
+                lines.append(('debit', cgst_ledger, cgst_input))
+            if sgst_ledger:
+                lines.append(('debit', sgst_ledger, sgst_input))
+
+    except Exception as e:
+        logger.error(
+            f"Purchase {purchase_invoice.id}: error building GST input lines: {e}. "
+            f"Attempting hard fallback."
+        )
+        try:
+            cgst_c = (gst_amount / 2).quantize(Decimal('0.01'))
+            sgst_c = gst_amount - cgst_c
+            cgst_ledger = _get_ledger_safe(outlet, 'GST Input (CGST)')
+            sgst_ledger = _get_ledger_safe(outlet, 'GST Input (SGST)')
+            if cgst_ledger:
+                lines.append(('debit', cgst_ledger, cgst_c))
+            if sgst_ledger:
+                lines.append(('debit', sgst_ledger, sgst_c))
+        except Exception as e2:
+            logger.error(
+                f"Purchase {purchase_invoice.id}: hard fallback also failed: {e2}. "
+                f"No GST input lines will be posted."
+            )
+
+    return lines
+
+
 @transaction.atomic
 def post_sale_invoice(sale_invoice):
     """
@@ -87,11 +426,9 @@ def post_sale_invoice(sale_invoice):
     to support any split-payment combination.
 
     GST amounts are read DIRECTLY from the invoice — never recalculated.
-    IGST is posted for interstate sales; CGST+SGST for intrastate.
-
-    Discount treatment: taxable_amount is already post-discount (net-of-discount
-    approach). No separate Sales Discount Account entry is made, which is the
-    standard practice for Indian retail pharmacy accounting.
+    Rate-specific GST Payable ledgers are used (CGST Payable 9%, SGST Payable 9%, etc).
+    Fallback to generic GST Payable CGST/SGST if rate-specific ledger not found.
+    GST posting failure NEVER crashes the invoice save.
 
     Journal entry (intrastate, split-payment example):
       Dr. Cash                      invoice.cash_paid         [if > 0]
@@ -99,10 +436,10 @@ def post_sale_invoice(sale_invoice):
       Dr. Card/POS Settlement       invoice.card_paid         [if > 0]
       Dr. Customer Ledger           invoice.credit_given      [if > 0]
       Cr. Sales Account             invoice.taxable_amount
-      Cr. GST Payable CGST          invoice.cgst_amount       [intrastate]
-      Cr. GST Payable SGST          invoice.sgst_amount       [intrastate]
+      Cr. CGST Payable {rate}%      cgst portion              [intrastate]
+      Cr. SGST Payable {rate}%      sgst portion              [intrastate]
       -- OR (interstate) --
-      Cr. GST Payable IGST          invoice.igst_amount
+      Cr. IGST Payable {rate}%      invoice.igst_amount
     """
     try:
         outlet = sale_invoice.outlet
@@ -150,29 +487,16 @@ def post_sale_invoice(sale_invoice):
                     f"Run sync_customer_ledgers first."
                 )
 
-        # ── CREDIT side: Sales Account + GST ──
+        # ── CREDIT side: Sales Account ──
         sales_ledger = _get_ledger(outlet, 'Sales Account')
         lines.append(('credit', sales_ledger, taxable_amount))
 
-        if igst_amount > 0:
-            # Interstate sale — post to IGST ledger only (not CGST + SGST)
-            igst_ledger = _get_ledger(outlet, 'GST Payable IGST')
-            lines.append(('credit', igst_ledger, igst_amount))
-        elif cgst_amount > 0 or sgst_amount > 0:
-            # Intrastate sale — post CGST and SGST separately
-            if cgst_amount > 0:
-                cgst_ledger = _get_ledger(outlet, 'GST Payable CGST')
-                lines.append(('credit', cgst_ledger, cgst_amount))
-            if sgst_amount > 0:
-                sgst_ledger = _get_ledger(outlet, 'GST Payable SGST')
-                lines.append(('credit', sgst_ledger, sgst_amount))
-        # else: 0% GST medicine — no GST posting needed
+        # ── CREDIT side: GST — rate-specific ledgers with fallback ──
+        # _build_sale_gst_lines never raises
+        gst_lines = _build_sale_gst_lines(outlet, sale_invoice)
+        lines.extend(gst_lines)
 
         # ── Handle round_off for double-entry balance ──
-        # grand_total = taxable + gst + round_off
-        # Debit side = grand_total (what customer pays)
-        # Credit side = taxable + gst (= grand_total - round_off)
-        # Gap = round_off must be posted to Round Off account to balance the entry.
         if round_off > 0:
             # Invoice rounded UP: customer paid more than exact → shop gains → Cr Round Off
             round_off_ledger = _get_ledger(outlet, 'Round Off')
@@ -233,10 +557,14 @@ def post_purchase_invoice(purchase_invoice, distributor_ledger=None):
     immediately after, which debits Distributor and credits Cash to settle the
     liability created here.
 
+    Rate-specific GST Input ledgers are used (CGST Input 6%, SGST Input 6%, etc).
+    Fallback to generic GST Input (CGST) / GST Input (SGST) if not found.
+    GST posting failure NEVER crashes the purchase save.
+
     Journal entry (both cash and credit purchases, intrastate):
       Dr. Purchase Account                 taxable_amount
-      Dr. GST Input (CGST)                 gst_amount / 2
-      Dr. GST Input (SGST)                 gst_amount / 2
+      Dr. CGST Input {rate}%               gst_amount / 2
+      Dr. SGST Input {rate}%               gst_amount / 2
       Dr/Cr Round Off                      abs(round_off)   [if non-zero]
       Cr. Distributor Ledger               grand_total
 
@@ -264,21 +592,12 @@ def post_purchase_invoice(purchase_invoice, distributor_ledger=None):
         purchase_ledger = _get_ledger(outlet, 'Purchase Account')
         lines.append(('debit', purchase_ledger, taxable_amount))
 
-        # Dr GST Input (CGST) and (SGST) — split gst_amount equally
+        # Dr GST Input — rate-specific with fallback, never raises
         if gst_amount > 0:
-            cgst_input = (gst_amount / 2).quantize(Decimal('0.01'))
-            # Use subtraction to avoid rounding errors: sgst = total - cgst
-            sgst_input = gst_amount - cgst_input
-
-            cgst_ledger = _get_ledger(outlet, 'GST Input (CGST)')
-            lines.append(('debit', cgst_ledger, cgst_input))
-
-            sgst_ledger = _get_ledger(outlet, 'GST Input (SGST)')
-            lines.append(('debit', sgst_ledger, sgst_input))
+            gst_lines = _build_purchase_gst_lines(outlet, purchase_invoice, gst_amount)
+            lines.extend(gst_lines)
 
         # Round Off — bridges the gap between (taxable + gst) and grand_total
-        # grand_total = taxable + gst + round_off, so the gap on the debit side
-        # equals abs(round_off) and must be closed here.
         round_off = purchase_invoice.round_off or Decimal('0')
         if round_off > 0:
             # grand_total > taxable+gst → credit side exceeds debit → Dr Round Off
@@ -532,12 +851,15 @@ def reverse_journal(source_type, source_id, outlet_id, narration_prefix='REVERSA
 def post_debit_note(debit_note, party_ledger=None):
     """
     Post a Purchase Return (Debit Note) to the general ledger.
-    
+
+    Rate-specific GST Input ledgers are used (CGST Input 6%, SGST Input 6%, etc).
+    Fallback to generic GST Input (CGST) / GST Input (SGST) if not found.
+
     Journal entry:
       Dr. Distributor Ledger (Sundry Creditors)     debit_note.total_amount
       Cr. Purchase Returns Account                  debit_note.subtotal
-      Cr. GST Input (CGST)                          debit_note.gst_amount / 2
-      Cr. GST Input (SGST)                          debit_note.gst_amount / 2
+      Cr. CGST Input {rate}%                        debit_note.gst_amount / 2
+      Cr. SGST Input {rate}%                        debit_note.gst_amount / 2
     """
     try:
         outlet = debit_note.outlet
@@ -557,10 +879,10 @@ def post_debit_note(debit_note, party_ledger=None):
         # 1. Debit the Distributor (Reduces the liability we owe them)
         if party_ledger is None:
             party_ledger = _get_distributor_ledger(outlet, debit_note.distributor)
-            
+
         if party_ledger is None:
             raise ValueError(f"No Sundry Creditors ledger found for distributor '{debit_note.distributor}'.")
-            
+
         lines.append(('debit', party_ledger, total_amount))
 
         # 2. Credit the Purchase Returns Account (Reversing the expense)
@@ -569,20 +891,37 @@ def post_debit_note(debit_note, party_ledger=None):
         except Ledger.DoesNotExist:
             # Fallback to general Purchase Account if a specific Returns account isn't seeded
             return_ledger = _get_ledger(outlet, 'Purchase Account')
-            
+
         lines.append(('credit', return_ledger, subtotal))
 
-        # 3. Credit the GST (Reversing the GST Input originally claimed)
+        # 3. Credit the GST Input (Reversing the GST Input originally claimed)
+        # Use rate-specific ledgers with fallback — never raises
         if gst_amount > 0:
-            cgst_ledger = _get_ledger(outlet, 'GST Input (CGST)')
-            sgst_ledger = _get_ledger(outlet, 'GST Input (SGST)')
-            
-            # Now this math is completely safe!
             cgst_credit = (gst_amount / Decimal('2')).quantize(Decimal('0.01'))
             sgst_credit = gst_amount - cgst_credit
-            
-            lines.append(('credit', cgst_ledger, cgst_credit))
-            lines.append(('credit', sgst_ledger, sgst_credit))
+
+            # Infer rate from debit note amounts
+            snapped_rate = None
+            if subtotal > 0:
+                inferred_rate = (gst_amount / subtotal * 100).quantize(Decimal('0.01'))
+                snapped_rate = _snap_to_standard_rate(inferred_rate)
+
+            if snapped_rate and snapped_rate in GST_RATE_TO_COMPONENTS:
+                cgst_rate, sgst_rate = GST_RATE_TO_COMPONENTS[snapped_rate]
+                cgst_ledger = _get_ledger_safe(
+                    outlet, f'CGST Input {cgst_rate}%', 'GST Input (CGST)'
+                )
+                sgst_ledger = _get_ledger_safe(
+                    outlet, f'SGST Input {sgst_rate}%', 'GST Input (SGST)'
+                )
+            else:
+                cgst_ledger = _get_ledger_safe(outlet, 'GST Input (CGST)')
+                sgst_ledger = _get_ledger_safe(outlet, 'GST Input (SGST)')
+
+            if cgst_ledger:
+                lines.append(('credit', cgst_ledger, cgst_credit))
+            if sgst_ledger:
+                lines.append(('credit', sgst_ledger, sgst_credit))
 
         # Verify double-entry balance
         total_debit = sum(amt for t, _, amt in lines if t == 'debit')

@@ -101,7 +101,7 @@ class LedgerService:
             return
 
         for distributor in Distributor.objects.for_outlet(outlet.id):
-            Ledger.objects.get_or_create(
+            ledger, created = Ledger.objects.get_or_create(
                 outlet=outlet,
                 linked_distributor=distributor,
                 defaults={
@@ -109,8 +109,13 @@ class LedgerService:
                     'group': group,
                     'phone': distributor.phone or '',
                     'gstin': distributor.gstin or '',
+                    'state': distributor.state or '',
                 },
             )
+            # Always keep ledger.state in sync with distributor.state
+            if not created and ledger.state != (distributor.state or ''):
+                ledger.state = distributor.state or ''
+                ledger.save(update_fields=['state'])
 
     @staticmethod
     @transaction.atomic
@@ -166,6 +171,38 @@ class VoucherService:
 
         if voucher_type == 'journal' and total_debit != total_credit:
             raise ValidationError('Journal voucher: total debit must equal total credit.')
+
+        # ── Direction guard for Receipt and Payment vouchers ──────────────────
+        # Receipt: money comes IN → cash/bank ledger is DEBITED, party (income/customer) is CREDITED.
+        #   If someone selects an Expense ledger in a Receipt, that is a user error.
+        # Payment: money goes OUT → cash/bank ledger is CREDITED, party (expense/supplier) is DEBITED.
+        #   If an Expense ledger appears as a CREDIT in a Payment, also wrong.
+        if voucher_type in ('receipt', 'payment'):
+            for line in lines_data:
+                line_debit = Decimal(str(line.get('debit', 0)))
+                line_credit = Decimal(str(line.get('credit', 0)))
+                if line_debit == 0 and line_credit == 0:
+                    continue
+                try:
+                    ledger = Ledger.objects.select_related('group').get(id=line['ledger_id'])
+                except Ledger.DoesNotExist:
+                    continue
+                nature = ledger.group.nature
+                if voucher_type == 'receipt' and nature == 'expense' and line_credit > 0:
+                    raise ValidationError(
+                        f"Receipt voucher: expense ledger '{ledger.name}' cannot be credited. "
+                        f"Use a Payment voucher to record expenses paid out."
+                    )
+                if voucher_type == 'payment' and nature == 'expense' and line_credit > 0:
+                    raise ValidationError(
+                        f"Payment voucher: expense ledger '{ledger.name}' must be debited, not credited. "
+                        f"Expenses are always on the debit side for a Payment voucher."
+                    )
+                if voucher_type == 'receipt' and nature == 'expense' and line_debit > 0:
+                    raise ValidationError(
+                        f"Receipt voucher: expense ledger '{ledger.name}' cannot be debited in a Receipt. "
+                        f"Use a Payment voucher to record an expense."
+                    )
 
         # Contra: both ledgers must be Cash in Hand or Bank Accounts
         if voucher_type == 'contra':
