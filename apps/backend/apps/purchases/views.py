@@ -1160,15 +1160,27 @@ class PurchaseInvoiceSearchView(APIView):
         results = []
         for inv in qs:
             items = []
+            # Calculate total of all items' exact amounts
+            raw_items_total = sum(float(item.total_amount) for item in inv.items.all())
+            grand_total = float(inv.grand_total)
+            ratio = grand_total / raw_items_total if raw_items_total > 0 else 1.0
+
             for item in inv.items.all():
                 product_name = item.master_product.name if item.master_product else (item.custom_product_name or 'Unknown')
+                
+                # Apportion bill-level adjustments (freight, ledger_adjustment, round_off) to item rate
+                effective_taxable = float(item.taxable_amount) * ratio
+                effective_rate = effective_taxable / item.qty if item.qty > 0 else 0.0
+                
                 items.append({
                     'productName': product_name,
                     'batchId': str(item.batch_id),
                     'batchNo': item.batch_no,
                     'expiry': str(item.expiry_date),
                     'qty': item.qty,
-                    'rate': float(item.purchase_rate),
+                    'availableQty': item.batch.qty_strips if item.batch else 0,
+                    'rate': effective_rate,
+                    'purchaseRate': float(item.purchase_rate),
                     'gstRate': float(item.gst_rate),
                 })
             results.append({

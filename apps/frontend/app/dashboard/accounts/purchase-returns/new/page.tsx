@@ -97,16 +97,22 @@ export default function NewDebitNotePage() {
         setInvoiceSearch(`${inv.invoiceNo} — ${inv.distributorName}`);
         setShowInvoiceDropdown(false);
         if (inv.items && inv.items.length > 0) {
-            setItems(inv.items.map((item: any) => ({
-                id: Math.random().toString(36).slice(2),
-                batchId: item.batchId || '',
-                productName: item.productName,
-                qty: String(item.qty),
-                rate: String(item.rate),
-                gstRate: String(item.gstRate),
-                maxQty: item.qty,
-                total: calcTotal(String(item.qty), String(item.rate), String(item.gstRate)),
-            })));
+            setItems(inv.items.map((item: any) => {
+                const maxAllowed = item.availableQty !== undefined 
+                    ? Math.min(Number(item.qty), Number(item.availableQty)) 
+                    : Number(item.qty);
+                    
+                return {
+                    id: Math.random().toString(36).slice(2),
+                    batchId: item.batchId || '',
+                    productName: item.productName,
+                    qty: String(maxAllowed),
+                    rate: String(item.rate),
+                    gstRate: String(item.gstRate),
+                    maxQty: maxAllowed,
+                    total: calcTotal(String(maxAllowed), String(item.rate), String(item.gstRate)),
+                };
+            }));
         }
     }
 

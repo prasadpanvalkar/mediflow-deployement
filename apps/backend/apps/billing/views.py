@@ -2556,6 +2556,10 @@ class SaleInvoiceSearchView(APIView):
         for inv in qs:
             items = []
             for item in inv.items.all():
+                pack_size = item.pack_size or 1
+                qty_fractional = float(item.qty_strips) + (float(item.qty_loose) / pack_size)
+                effective_rate = float(item.total_amount) / qty_fractional if qty_fractional > 0 else 0.0
+                
                 items.append({
                     'id': str(item.id),
                     'batchId': str(item.batch_id) if item.batch_id else '', # THE FIX
@@ -2566,9 +2570,9 @@ class SaleInvoiceSearchView(APIView):
                     'qtyStrips': item.qty_strips,
                     'qtyLoose': item.qty_loose,
                     'packSize': item.pack_size,
-                    # Fallback 'qty' for simple frontend tables (Total units)
-                    'qty': (item.qty_strips * (item.pack_size or 1)) + item.qty_loose,
-                    'rate': float(item.sale_rate),
+                    'qty': (item.qty_strips * pack_size) + item.qty_loose,
+                    'rate': effective_rate,
+                    'saleRate': float(item.sale_rate),
                     'discPercent': float(item.discount_pct),
                     'gstRate': float(item.gst_rate),
                 })

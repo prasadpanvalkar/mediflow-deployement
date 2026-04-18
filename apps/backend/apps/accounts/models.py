@@ -88,6 +88,7 @@ class Customer(models.Model):
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=20)
     address = models.TextField(null=True, blank=True)
+    state = models.CharField(max_length=100, null=True, blank=True)
     dob = models.DateField(null=True, blank=True)
     gstin = models.CharField(max_length=15, null=True, blank=True, help_text='For B2B customers')
 
