@@ -1,10 +1,16 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type {
     OutletSettings, GSTSettings, PrinterSettings, BillingSettings,
     AttendanceSettings, NotificationSettings, AppPreferences,
 } from '../types';
 import { STATE_CODES } from '@mediflow/constants';
+
+// ── Per-outlet storage key ─────────────────────────────────────────────────
+// Each outlet gets its own localStorage bucket so settings never bleed across.
+function getStorageKey(outletId?: string | null): string {
+    return outletId ? `mediflow-settings-${outletId}` : 'mediflow-settings-default';
+}
 
 const DEFAULT_OUTLET: OutletSettings = {
     outletName: '',
@@ -186,7 +192,17 @@ export const useSettingsStore = create<SettingsState>()(
                 }),
         }),
         {
-            name: 'mediflow-settings',
+            name: getStorageKey(
+                typeof window !== 'undefined'
+                    ? (() => {
+                        // Try to read the current outlet ID from the persisted auth store
+                        try {
+                            const auth = JSON.parse(localStorage.getItem('mediflow-auth') || '{}');
+                            return auth?.state?.user?.outletId ?? null;
+                        } catch { return null; }
+                    })()
+                    : null
+            ),
             skipHydration: true,
             version: 3,
             migrate: (state: any, v: number) => {
@@ -212,3 +228,11 @@ export const useSettingsStore = create<SettingsState>()(
         }
     )
 );
+
+// ── Helper: reload the store with the correct outlet key after a switch ──────
+// Call this right after switching outlets so the store re-hydrates from the
+// new outlet's localStorage bucket instead of the old one.
+export function rehydrateSettingsForOutlet(outletId: string) {
+    useSettingsStore.persist.setOptions({ name: getStorageKey(outletId) });
+    useSettingsStore.persist.rehydrate();
+}

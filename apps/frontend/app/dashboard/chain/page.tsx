@@ -6,7 +6,7 @@ import { format, startOfMonth } from 'date-fns';
 import { Building2, TrendingUp, ShoppingCart, CreditCard, ArrowDownCircle, RefreshCw, AlertTriangle, ArrowRight, Loader2 } from 'lucide-react';
 import { chainApi, authApi } from '@/lib/apiClient';
 import { useAuthStore } from '@/store/authStore';
-import { useSettingsStore } from '@/store/settingsStore';
+import { useSettingsStore, rehydrateSettingsForOutlet } from '@/store/settingsStore';
 import { useBillingStore } from '@/store/billingStore';
 import { ChainDashboard, ChainOutletRow } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -62,8 +62,11 @@ export default function ChainDashboardPage() {
             useAuthStore.setState({ user: data.user, isAuthenticated: true });
             useAuthStore.getState().setOutlet(data.user.outlet);
 
-            // 2. Clear selectedOutletId so useOutletId() picks up the new outlet from auth store
+            // 2. Update selectedOutletId so useOutletId() picks up the new outlet from auth store
             useSettingsStore.getState().setOutletId(data.user.outletId);
+
+            // 2b. Re-key the settings store to the new outlet's localStorage bucket
+            rehydrateSettingsForOutlet(data.user.outletId);
 
             // 3. Reset billing store to prevent cross-outlet cart leakage
             useBillingStore.getState().resetBilling();
