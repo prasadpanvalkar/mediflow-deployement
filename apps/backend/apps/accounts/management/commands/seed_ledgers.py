@@ -392,39 +392,35 @@ def seed_outlet_ledgers(outlet):
     debtors_group = group_map.get('Sundry Debtors')
     if debtors_group:
         for customer in Customer.objects.for_outlet(outlet.id):
-            _, created = Ledger.objects.get_or_create(
-                outlet=outlet,
-                linked_customer=customer,
-                defaults={
-                    'name': customer.name,
-                    'group': debtors_group,
-                    'balance_type': 'Dr',
-                    'current_balance': customer.outstanding,
-                    'phone': customer.phone or '',
-                    'is_system': False,
-                },
-            )
-            if created:
+            if not Ledger.objects.filter(outlet=outlet, linked_customer=customer).exists():
+                Ledger.objects.create(
+                    outlet=outlet,
+                    linked_customer=customer,
+                    name=customer.name,
+                    group=debtors_group,
+                    balance_type='Dr',
+                    current_balance=customer.outstanding,
+                    phone=customer.phone or '',
+                    is_system=False,
+                )
                 customers_synced += 1
 
     # ── STEP 4: Sync distributors as Sundry Creditors ──
     creditors_group = group_map.get('Sundry Creditors')
     if creditors_group:
         for distributor in Distributor.objects.for_outlet(outlet.id):
-            _, created = Ledger.objects.get_or_create(
-                outlet=outlet,
-                linked_distributor=distributor,
-                defaults={
-                    'name': distributor.name,
-                    'group': creditors_group,
-                    'balance_type': 'Cr',
-                    'current_balance': distributor.opening_balance or 0,
-                    'gstin': distributor.gstin or '',
-                    'phone': distributor.phone or '',
-                    'is_system': False,
-                },
-            )
-            if created:
+            if not Ledger.objects.filter(outlet=outlet, linked_distributor=distributor).exists():
+                Ledger.objects.create(
+                    outlet=outlet,
+                    linked_distributor=distributor,
+                    name=distributor.name,
+                    group=creditors_group,
+                    balance_type='Cr',
+                    current_balance=distributor.opening_balance or 0,
+                    gstin=distributor.gstin or '',
+                    phone=distributor.phone or '',
+                    is_system=False,
+                )
                 distributors_synced += 1
 
     return {
