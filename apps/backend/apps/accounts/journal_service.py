@@ -349,10 +349,15 @@ def _build_purchase_gst_lines(outlet, purchase_invoice, gst_amount, distributor_
         distributor_state = ''
         if distributor_ledger:
             distributor_state = getattr(distributor_ledger, 'state', '') or ''
-        else:
+            
+        # Fallback if ledger state is empty (e.g. legacy ledgers or sync issues)
+        if not distributor_state:
             distributor = getattr(purchase_invoice, 'distributor', None)
             if distributor:
                 distributor_state = getattr(distributor, 'state', '') or ''
+            # Hard fallback to linked_distributor
+            elif distributor_ledger and getattr(distributor_ledger, 'linked_distributor', None):
+                distributor_state = distributor_ledger.linked_distributor.state or ''
 
         interstate = _is_interstate(distributor_state, outlet_state)
 

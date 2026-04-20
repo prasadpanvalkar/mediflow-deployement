@@ -401,6 +401,8 @@ def seed_outlet_ledgers(outlet):
                     balance_type='Dr',
                     current_balance=customer.outstanding,
                     phone=(customer.phone or '')[:15],
+                    address=(getattr(customer, 'address', '') or ''),
+                    state=(getattr(customer, 'state', '') or ''),
                     is_system=False,
                 )
                 customers_synced += 1
@@ -419,6 +421,8 @@ def seed_outlet_ledgers(outlet):
                     current_balance=distributor.opening_balance or 0,
                     gstin=(distributor.gstin or '')[:15],
                     phone=(distributor.phone or '')[:15],
+                    address=(getattr(distributor, 'address', '') or ''),
+                    state=(getattr(distributor, 'state', '') or ''),
                     is_system=False,
                 )
                 distributors_synced += 1
