@@ -29,7 +29,7 @@ export default function CustomerTable({ filters, onEdit }: CustomerTableProps) {
         );
     }
 
-    const customers = (data ?? []) as CustomerFull[];
+    const customers = (data?.data ?? data ?? []) as CustomerFull[];
 
     return (
         <div className="bg-white rounded-xl border overflow-hidden">

@@ -54,7 +54,7 @@ export default function CustomerGrid({ filters, onEdit }: CustomerGridProps) {
         );
     }
 
-    const customers = (data ?? []) as CustomerFull[];
+    const customers = (data?.data ?? data ?? []) as CustomerFull[];
 
     if (customers.length === 0) {
         return (

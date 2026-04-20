@@ -11,7 +11,7 @@ from django.core.exceptions import ValidationError
 from datetime import datetime
 from datetime import date
 
-from apps.accounts.models import Staff, Customer
+from apps.accounts.models import Staff, Customer, Ledger
 from apps.core.models import Outlet
 
 logger = logging.getLogger(__name__)
@@ -541,17 +541,45 @@ class CustomerListView(APIView):
                 Q(name__icontains=query_lower) | Q(phone__icontains=query_lower)
             )
 
+        # Apply isChronic filter
+        is_chronic_param = request.query_params.get('isChronic', '').lower()
+        if is_chronic_param == 'true':
+            customers = customers.filter(is_chronic=True)
+        elif is_chronic_param == 'false':
+            customers = customers.filter(is_chronic=False)
+
+        # Apply hasOutstanding filter (use 'outstanding' - the actual DB field)
+        has_outstanding_param = request.query_params.get('hasOutstanding', '').lower()
+        if has_outstanding_param == 'true':
+            customers = customers.filter(outstanding__gt=0)
+        elif has_outstanding_param == 'false':
+            customers = customers.filter(outstanding__lte=0)
+
         # Apply pagination
         total_records = customers.count()
         start = (page - 1) * page_size
         end = start + page_size
-        customers_page = customers[start:end]
+        customers_page = list(customers[start:end])
+
+        # OPTIMIZED: Bulk-prefetch Ledger balances for all page customers in ONE query.
+        # Before: outstanding_balance @property fires a Ledger query per customer (N extra queries).
+        # After:  1 extra query total, looked up via dict.
+        customer_ids = [c.id for c in customers_page]
+        ledger_balances = {
+            str(l.linked_customer_id): float(l.current_balance)
+            for l in Ledger.objects.filter(
+                linked_customer_id__in=customer_ids,
+                group__name='Sundry Debtors',
+            ).only('linked_customer_id', 'current_balance')
+        }
 
         # Serialize customers
         results = []
         for customer in customers_page:
+            cid = str(customer.id)
+            outstanding = ledger_balances.get(cid, float(customer.outstanding))
             result = {
-                'id': str(customer.id),
+                'id': cid,
                 'name': customer.name,
                 'phone': customer.phone,
                 'address': customer.address,
@@ -560,7 +588,7 @@ class CustomerListView(APIView):
                 'gstin': customer.gstin,
                 'fixedDiscount': float(customer.fixed_discount),
                 'creditLimit': float(customer.credit_limit),
-                'outstanding': float(customer.outstanding_balance),
+                'outstanding': outstanding,
                 'totalPurchases': float(customer.total_purchases),
                 'isChronic': customer.is_chronic,
                 'isActive': customer.is_active,

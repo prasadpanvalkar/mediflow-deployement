@@ -88,9 +88,9 @@ export default function CustomersPage() {
                 onSearchChange={setSearchQuery}
                 sortBy={sortBy}
                 onSortChange={setSortBy}
-                totalCount={allCustomers?.length}
-                chronicCount={chronicCustomers?.length}
-                outstandingCount={outstandingCustomers?.length}
+                totalCount={allCustomers?.pagination?.totalRecords ?? allCustomers?.data?.length}
+                chronicCount={chronicCustomers?.pagination?.totalRecords ?? chronicCustomers?.data?.length}
+                outstandingCount={outstandingCustomers?.pagination?.totalRecords ?? outstandingCustomers?.data?.length}
             />
 
             {/* List / Grid */}

@@ -633,42 +633,46 @@ class InventoryListView(APIView):
         ).values_list('product_id', flat=True).distinct()
         products = products.filter(id__in=products_with_batches_at_outlet)
 
-        logger.info(f"Found {products.count()} products with stock at outlet {outlet.name}")
-
-        # Build ProductSearchResult for each product with batches
+        # OPTIMIZED: Bulk-fetch ALL active, non-expired batches for all outlet products
+        # in a single query, then group by product in Python.
+        # Before: O(N*3) DB queries (filter + aggregate + first per product).
+        # After:  O(1) DB queries total.
         today = datetime.now().date()
+        products_list = list(products)  # execute products query once
+        logger.info(f"Found {len(products_list)} products with stock at outlet {outlet.name}")
+
+        product_ids = [p.id for p in products_list]
+        all_batches_qs = Batch.objects.filter(
+            product_id__in=product_ids,
+            outlet=outlet,
+            is_active=True,
+            expiry_date__gt=today,
+        ).order_by('expiry_date', '-created_at')
+
+        # Group batches by product_id — pure Python, zero extra DB hits
+        from collections import defaultdict
+        batches_map = defaultdict(list)
+        for batch in all_batches_qs:
+            batches_map[batch.product_id].append(batch)
+
         results = []
+        for product in products_list:
+            product_batches = batches_map.get(product.id, [])
 
-        for product in products:
-            # Get non-expired, active batches for this product at this outlet, ordered by expiry (FEFO)
-            batches = Batch.objects.filter(
-                product=product,
-                outlet=outlet,
-                is_active=True,
-                expiry_date__gt=today
-            ).order_by('expiry_date', '-created_at')
-
-            # Aggregate stock
-            total_stock = batches.aggregate(
-                total=Sum('qty_strips')
-            )['total'] or 0
-
-            # Get nearest expiry date (first batch in FEFO order)
+            # All aggregations done in Python (batches already in memory)
+            total_stock = sum(b.qty_strips for b in product_batches)
             nearest_expiry = (
-                batches.first().expiry_date.isoformat()
-                if batches.exists()
+                product_batches[0].expiry_date.isoformat()
+                if product_batches
                 else "2099-12-31"
             )
-
-            # Determine if low stock (< 10 strips)
             is_low_stock = total_stock < 10
 
-            # Serialize batches
             batch_list = [
                 {
                     'id': str(batch.id),
-                    'outletId': str(batch.outlet.id),
-                    'outletProductId': str(batch.product.id),
+                    'outletId': str(outlet.id),
+                    'outletProductId': str(product.id),
                     'batchNo': batch.batch_no,
                     'mfgDate': batch.mfg_date.isoformat() if batch.mfg_date else None,
                     'expiryDate': batch.expiry_date.isoformat(),
@@ -681,10 +685,9 @@ class InventoryListView(APIView):
                     'isActive': batch.is_active,
                     'createdAt': batch.created_at.isoformat(),
                 }
-                for batch in batches
+                for batch in product_batches
             ]
 
-            # Build ProductSearchResult
             result = {
                 'id': str(product.id),
                 'name': product.name,
@@ -710,7 +713,6 @@ class InventoryListView(APIView):
                 'isLowStock': is_low_stock,
                 'batches': batch_list,
             }
-
             results.append(result)
 
         # Apply lowStock filter
@@ -804,65 +806,68 @@ class InventoryAlertsView(APIView):
         logger.info(f"Fetching inventory alerts for outlet: {outlet.name}")
 
         today = datetime.now().date()
+        cutoff_30 = today + timedelta(days=30)
         low_stock = []
         expiring_in_30_days = []
         out_of_stock = []
 
-        # Get all products
-        products = MasterProduct.objects.all()
+        # OPTIMIZED: Fetch ALL batches for this outlet in ONE query (with product joined).
+        # Before: MasterProduct.objects.all() then N queries per product.
+        # After:  1 query total, O(N) Python grouping.
+        outlet_batches = Batch.objects.filter(
+            outlet=outlet,
+            is_active=True,
+        ).select_related('product').order_by('expiry_date')
 
-        for product in products:
-            # Get batches for this product at this outlet
-            batches = Batch.objects.filter(
-                product=product,
-                outlet=outlet,
-                is_active=True
-            ).order_by('expiry_date')
+        # Group batches by product; track the product object via first seen batch
+        from collections import defaultdict
+        batches_map = defaultdict(list)
+        product_map = {}
+        for batch in outlet_batches:
+            batches_map[batch.product_id].append(batch)
+            if batch.product_id not in product_map:
+                product_map[batch.product_id] = batch.product
 
-            # Aggregate total stock
-            total_stock = batches.aggregate(total=Sum('qty_strips'))['total'] or 0
+        for product_id, product_batches in batches_map.items():
+            product = product_map[product_id]
 
-            # Get nearest expiry date
+            # Aggregate total stock in Python (no extra DB queries)
+            total_stock = sum(b.qty_strips for b in product_batches)
+
+            # Nearest expiry = first batch (already sorted asc by expiry_date)
             nearest_expiry = (
-                batches.first().expiry_date.isoformat()
-                if batches.exists()
+                product_batches[0].expiry_date.isoformat()
+                if product_batches
                 else None
             )
 
-            # Check for out of stock
             if total_stock == 0:
                 out_of_stock.append({
                     'productId': str(product.id),
                     'productName': product.name,
                 })
-            # Check for low stock (0 < total_stock < 10)
             elif total_stock < 10:
                 low_stock.append({
                     'productId': str(product.id),
                     'productName': product.name,
                     'totalStock': total_stock,
-                    'reorderQty': 50,  # Default reorder qty
+                    'reorderQty': 50,
                     'nearestExpiry': nearest_expiry,
                 })
 
-            # Check for batches expiring in 30 days
-            cutoff_date = today + timedelta(days=30)
-            expiring_batches = batches.filter(
-                expiry_date__lte=cutoff_date,
-                expiry_date__gte=today,
-                qty_strips__gt=0
-            )
-
-            for batch in expiring_batches:
-                days_remaining = (batch.expiry_date - today).days
-                expiring_in_30_days.append({
-                    'productId': str(product.id),
-                    'productName': product.name,
-                    'batchNo': batch.batch_no,
-                    'expiryDate': batch.expiry_date.isoformat(),
-                    'daysRemaining': days_remaining,
-                    'qty': batch.qty_strips,
-                })
+            # Batches expiring within 30 days with stock remaining
+            for batch in product_batches:
+                if (batch.expiry_date and
+                        today <= batch.expiry_date <= cutoff_30 and
+                        batch.qty_strips > 0):
+                    expiring_in_30_days.append({
+                        'productId': str(product.id),
+                        'productName': product.name,
+                        'batchNo': batch.batch_no,
+                        'expiryDate': batch.expiry_date.isoformat(),
+                        'daysRemaining': (batch.expiry_date - today).days,
+                        'qty': batch.qty_strips,
+                    })
 
         result = {
             'lowStock': low_stock,

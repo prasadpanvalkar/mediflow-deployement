@@ -41,7 +41,7 @@ export default function InventoryPage() {
     const { data: expiringData } = useExpiryReport(90);
     const { data: lowStockData } = useLowStockReport();
 
-    const totalProducts = stockData?.data.length || 0;
+    const totalProducts = stockData?.pagination?.totalRecords ?? stockData?.data?.length ?? 0;
     const expiringCount = expiringData?.length || 0;
     const lowStockCount = lowStockData?.length || 0;
 

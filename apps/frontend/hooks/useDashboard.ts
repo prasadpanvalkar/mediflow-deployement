@@ -25,11 +25,16 @@ export function useDashboardAlerts() {
   const { outlet } = useAuthStore();
   const { selectedOutletId } = useSettingsStore();
   const outletId = selectedOutletId ?? outlet?.id ?? '';
+  const today = format(new Date(), 'yyyy-MM-dd');
 
+  // Share the same queryKey as useDashboardKPI so React Query returns
+  // the cached result — no second network request is made.
   return useQuery({
-    queryKey: ['dashboard', 'alerts', outletId],
-    queryFn: () => dashboardApi.getAlerts(outletId),
+    queryKey: ['dashboard', 'kpi', outletId, today],
+    queryFn: () => dashboardApi.getDailySummary(outletId, today),
     enabled: !!outletId,
-    staleTime: 1000 * 60 * 5,
+    staleTime: 1000 * 60 * 2,
+    refetchInterval: 1000 * 60 * 2,
+    select: (data: any) => data?.alerts || {},
   });
 }

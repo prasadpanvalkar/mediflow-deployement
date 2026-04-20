@@ -323,13 +323,13 @@ def _build_sale_gst_lines(outlet, sale_invoice):
     return lines
 
 
-def _build_purchase_gst_lines(outlet, purchase_invoice, gst_amount):
+def _build_purchase_gst_lines(outlet, purchase_invoice, gst_amount, distributor_ledger=None):
     """
     Build GST debit lines for a purchase invoice, using rate-specific ledgers.
 
     Interstate vs Intrastate determination:
-      - Read outlet.state and distributor.state (from purchase_invoice.distributor).
-      - If distributor state != outlet state → INTERSTATE → IGST Input only.
+      - Read outlet.state and distributor_ledger.state.
+      - If distributor_ledger state != outlet state → INTERSTATE → IGST Input only.
       - If same state or either state is blank → INTRASTATE → CGST + SGST Input.
 
     Rate strategy:
@@ -346,10 +346,13 @@ def _build_purchase_gst_lines(outlet, purchase_invoice, gst_amount):
     try:
         # ── Determine interstate or intrastate ──────────────────────────────
         outlet_state = getattr(outlet, 'state', '') or ''
-        distributor = getattr(purchase_invoice, 'distributor', None)
         distributor_state = ''
-        if distributor:
-            distributor_state = getattr(distributor, 'state', '') or ''
+        if distributor_ledger:
+            distributor_state = getattr(distributor_ledger, 'state', '') or ''
+        else:
+            distributor = getattr(purchase_invoice, 'distributor', None)
+            if distributor:
+                distributor_state = getattr(distributor, 'state', '') or ''
 
         interstate = _is_interstate(distributor_state, outlet_state)
 
@@ -588,13 +591,25 @@ def post_purchase_invoice(purchase_invoice, distributor_ledger=None):
         taxable_amount = purchase_invoice.taxable_amount
         gst_amount = purchase_invoice.gst_amount or Decimal('0')
 
+        # Cr Distributor Ledger — always, for both cash and credit purchases
+        if distributor_ledger is None:
+            distributor_ledger = _get_distributor_ledger(outlet, purchase_invoice.distributor)
+
+        if distributor_ledger is None:
+            raise ValueError(
+                f"Purchase {purchase_invoice.id}: no Sundry Creditors ledger found for "
+                f"distributor '{purchase_invoice.distributor}'. "
+                f"Pass the party_ledger explicitly from atomic_purchase_save(), or run "
+                f"sync_distributor_ledgers to link existing distributors."
+            )
+
         # Dr Purchase Account
         purchase_ledger = _get_ledger(outlet, 'Purchase Account')
         lines.append(('debit', purchase_ledger, taxable_amount))
 
         # Dr GST Input — rate-specific with fallback, never raises
         if gst_amount > 0:
-            gst_lines = _build_purchase_gst_lines(outlet, purchase_invoice, gst_amount)
+            gst_lines = _build_purchase_gst_lines(outlet, purchase_invoice, gst_amount, distributor_ledger)
             lines.extend(gst_lines)
 
         # Round Off — bridges the gap between (taxable + gst) and grand_total
@@ -607,18 +622,6 @@ def post_purchase_invoice(purchase_invoice, distributor_ledger=None):
             # grand_total < taxable+gst → debit side exceeds credit → Cr Round Off
             round_off_ledger = _get_ledger(outlet, 'Round Off')
             lines.append(('credit', round_off_ledger, abs(round_off)))
-
-        # Cr Distributor Ledger — always, for both cash and credit purchases
-        if distributor_ledger is None:
-            distributor_ledger = _get_distributor_ledger(outlet, purchase_invoice.distributor)
-
-        if distributor_ledger is None:
-            raise ValueError(
-                f"Purchase {purchase_invoice.id}: no Sundry Creditors ledger found for "
-                f"distributor '{purchase_invoice.distributor}'. "
-                f"Pass the party_ledger explicitly from atomic_purchase_save(), or run "
-                f"sync_distributor_ledgers to link existing distributors."
-            )
 
         # Ledger Adjustment — balances the gap between (taxable+gst+round_off) and grand_total
         ledger_adj = purchase_invoice.ledger_adjustment or Decimal('0')

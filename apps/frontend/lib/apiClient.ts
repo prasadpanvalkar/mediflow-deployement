@@ -795,15 +795,19 @@ const realDistributorsApi = {
 };
 
 const realCustomersApi = {
-    list: async (outletId: string, filters?: any): Promise<any[]> => {
+    list: async (outletId: string, filters?: any): Promise<any> => {
         let url = `${API_URL}/customers/?outletId=${outletId}`;
         if (filters?.search) url += `&search=${encodeURIComponent(filters.search)}`;
+        if (filters?.isChronic !== undefined) url += `&isChronic=${filters.isChronic}`;
+        if (filters?.hasOutstanding !== undefined) url += `&hasOutstanding=${filters.hasOutstanding}`;
         if (filters?.page) url += `&page=${filters.page}`;
+        if (filters?.pageSize) url += `&pageSize=${filters.pageSize}`;
 
         const response = await fetch(url, { headers: getHeaders() });
         await assertOk(response);
         const data = await response.json();
-        return data.data || [];
+        // Return the full paginated response so callers can access pagination.totalRecords
+        return data;
     },
     getById: async (id: string) => {
         const response = await fetch(`${API_URL}/customers/${id}/`, { headers: getHeaders() });

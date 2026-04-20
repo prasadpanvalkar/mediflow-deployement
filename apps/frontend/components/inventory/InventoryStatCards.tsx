@@ -20,7 +20,7 @@ export function InventoryStatCards({ onTabChange }: { onTabChange?: (tab: string
     }
 
     const items = stockData?.data || [];
-    const totalProducts = items.length;
+    const totalProducts = stockData?.pagination?.totalRecords ?? items.length;
     let activeBatches = 0;
     let stockValue = 0;
     let expiringCount = 0;

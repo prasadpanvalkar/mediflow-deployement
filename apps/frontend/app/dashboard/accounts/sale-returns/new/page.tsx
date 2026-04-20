@@ -66,7 +66,7 @@ export default function NewCreditNotePage() {
 
     useEffect(() => {
         if (!outletId) return;
-        customersApi.list(outletId).then(setCustomers).catch(() => {});
+        customersApi.list(outletId).then((res: any) => setCustomers(res?.data ?? res ?? [])).catch(() => {});
     }, [outletId]);
 
     // Close dropdown on outside click
