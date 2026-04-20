@@ -396,11 +396,11 @@ def seed_outlet_ledgers(outlet):
                 Ledger.objects.create(
                     outlet=outlet,
                     linked_customer=customer,
-                    name=customer.name,
+                    name=customer.name[:255],
                     group=debtors_group,
                     balance_type='Dr',
                     current_balance=customer.outstanding,
-                    phone=customer.phone or '',
+                    phone=(customer.phone or '')[:15],
                     is_system=False,
                 )
                 customers_synced += 1
@@ -413,12 +413,12 @@ def seed_outlet_ledgers(outlet):
                 Ledger.objects.create(
                     outlet=outlet,
                     linked_distributor=distributor,
-                    name=distributor.name,
+                    name=distributor.name[:255],
                     group=creditors_group,
                     balance_type='Cr',
                     current_balance=distributor.opening_balance or 0,
-                    gstin=distributor.gstin or '',
-                    phone=distributor.phone or '',
+                    gstin=(distributor.gstin or '')[:15],
+                    phone=(distributor.phone or '')[:15],
                     is_system=False,
                 )
                 distributors_synced += 1
