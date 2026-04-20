@@ -40,7 +40,7 @@ class OutletSettingsView(APIView):
         }
 
     def get(self, request, *args, **kwargs):
-        outlet_id = getattr(request.user, 'outlet_id', None)
+        outlet_id = request.query_params.get('outletId') or getattr(request.user, 'outlet_id', None)
         try:
             outlet = Outlet.objects.get(id=outlet_id)
         except Outlet.DoesNotExist:
@@ -50,7 +50,7 @@ class OutletSettingsView(APIView):
         return Response({'success': True, 'data': self._serialize(settings)}, status=status.HTTP_200_OK)
 
     def patch(self, request, *args, **kwargs):
-        outlet_id = getattr(request.user, 'outlet_id', None)
+        outlet_id = request.data.get('outletId') or request.query_params.get('outletId') or getattr(request.user, 'outlet_id', None)
         try:
             outlet = Outlet.objects.get(id=outlet_id)
         except Outlet.DoesNotExist:
