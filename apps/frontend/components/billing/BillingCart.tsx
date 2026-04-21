@@ -29,6 +29,7 @@ const CartItemRow = ({
     item, 
     index, 
     onRateErrorChange, 
+    onFloorErrorChange,
     removeFromCart, 
     updateCartItem, 
     applyDiscountToItem, 
@@ -57,6 +58,10 @@ const CartItemRow = ({
     useEffect(() => {
         onRateErrorChange(item.batchId, isError);
     }, [isError, item.batchId]);
+
+    useEffect(() => {
+        onFloorErrorChange(item.batchId, isWarning);
+    }, [isWarning, item.batchId]);
 
     const displayError = backendError ? backendError : isError ? `Exceeds MRP (₹${item.mrp.toFixed(2)})` : null;
     const displayWarning = isWarning && !isError && !backendError ? `Below landing rate (₹${landingRate.toFixed(2)})` : null;
@@ -369,10 +374,22 @@ export function BillingCart({ onProceedToPayment, onAddDoctorDetails }: BillingC
         : (user?.canViewPurchaseRates ?? false)
 
     const totals = getTotals()
+    const { data: settings } = useOutletSettings();
     const [rateErrors, setRateErrors] = useState<Record<string, boolean>>({});
+    const [floorErrors, setFloorErrors] = useState<Record<string, boolean>>({});
     const hasRateError = Object.values(rateErrors).some(Boolean);
-    const totalCost = canViewRates
-        ? cart.reduce((sum, item) => sum + (item.purchaseRate ?? 0) * item.totalQty, 0)
+    const hasFloorError = Object.values(floorErrors).some(Boolean);
+    const totalFloorCost = canViewRates
+        ? cart.reduce((sum, item) => {
+            const floorRate = calculateLandingRate(
+                item.purchaseRate || 0,
+                item.gstRate || 0,
+                item.freight || 0,
+                !!settings?.landingCostIncludeGst,
+                settings?.landingCostIncludeFreight ?? true
+            );
+            return sum + floorRate * item.totalQty;
+          }, 0)
         : 0
 
     const handleQtyChange = (batchId: string, currentTotalQty: number, packSize: number, delta: number, currentStrips: number, currentLoose: number) => {
@@ -451,6 +468,7 @@ export function BillingCart({ onProceedToPayment, onAddDoctorDetails }: BillingC
                                 item={item} 
                                 index={index}
                                 onRateErrorChange={(batchId: string, has: boolean) => setRateErrors(p => ({...p, [batchId]: has}))}
+                                onFloorErrorChange={(batchId: string, has: boolean) => setFloorErrors(p => ({...p, [batchId]: has}))}
                                 removeFromCart={removeFromCart}
                                 updateCartItem={updateCartItem}
                                 applyDiscountToItem={applyDiscountToItem}
@@ -497,12 +515,12 @@ export function BillingCart({ onProceedToPayment, onAddDoctorDetails }: BillingC
                     {canViewRates && (
                         <>
                             <div className="flex justify-between text-emerald-600 text-xs font-medium pt-1">
-                                <span>Total Cost (Purchase)</span>
-                                <span>{formatCurrency(totalCost)}</span>
+                                <span>Total Cost (Floor Rate)</span>
+                                <span>{formatCurrency(totalFloorCost)}</span>
                             </div>
                             <div className="flex justify-between text-emerald-600 text-xs font-medium">
                                 <span>Est. Margin</span>
-                                <span>{formatCurrency(totals.grandTotal - totalCost)}</span>
+                                <span>{formatCurrency(totals.grandTotal - totalFloorCost)}</span>
                             </div>
                         </>
                     )}
@@ -527,8 +545,12 @@ export function BillingCart({ onProceedToPayment, onAddDoctorDetails }: BillingC
                     <button
                         data-testid="save-bill-btn"
                         onClick={onProceedToPayment}
-                        disabled={cart.length === 0 || !isPinVerified || hasRateError}
-                        title={hasRateError ? "Fix pricing errors to continue" : ""}
+                        disabled={cart.length === 0 || !isPinVerified || hasRateError || hasFloorError}
+                        title={
+                            hasRateError ? "Fix pricing errors to continue: rate exceeds MRP" :
+                            hasFloorError ? "Cannot bill below floor rate — adjust item rates" :
+                            ""
+                        }
                         className="w-full h-12 bg-primary text-white rounded-xl font-semibold text-base flex justify-between items-center px-5 transition-transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700"
                     >
                         <span>Proceed to Payment</span>

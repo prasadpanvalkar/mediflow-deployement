@@ -343,6 +343,7 @@ export interface CartItem {
     totalAmount: number;
     purchaseRate?: number;
     landingCost?: number;
+    freight?: number;       // per-unit freight cost (from purchase) — used for floor rate calculation
 }
 
 export interface PaymentSplit {
