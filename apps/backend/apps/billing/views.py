@@ -5,8 +5,7 @@ from datetime import datetime
 from django.db.models import Sum, Count, Q, F
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from apps.core.permissions import IsManagerOrAbove
+from apps.core.permissions import IsAuthenticated, IsManagerOrAbove, CanEditSalesInvoice, IsBillingStaffOrAbove
 from rest_framework import status
 from decimal import Decimal, ROUND_FLOOR
 from datetime import datetime, timedelta, date
@@ -57,7 +56,7 @@ class SaleCreateView(APIView):
     customer credit transactions if applicable.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsBillingStaffOrAbove]
 
     def post(self, request, *args, **kwargs):
         """
@@ -1175,6 +1174,8 @@ class DashboardDailyView(APIView):
 
         try:
             outlet_id = request.query_params.get('outletId')
+            start_date_str = request.query_params.get('startDate')
+            end_date_str = request.query_params.get('endDate')
             date_str = request.query_params.get('date', datetime.now().date().isoformat())
 
             # Validate outlet
@@ -1187,18 +1188,26 @@ class DashboardDailyView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
 
-            # Parse date
+            # Parse dates
             try:
-                target_date = datetime.fromisoformat(date_str).date()
+                if start_date_str and end_date_str:
+                    target_start = datetime.fromisoformat(start_date_str).date()
+                    target_end = datetime.fromisoformat(end_date_str).date()
+                else:
+                    target_start = datetime.fromisoformat(date_str).date()
+                    target_end = target_start
             except (ValueError, TypeError):
-                target_date = datetime.now().date()
+                target_start = datetime.now().date()
+                target_end = target_start
 
-            logger.info(f"Fetching dashboard for {outlet.name} on {target_date}")
+            logger.info(f"Fetching dashboard for {outlet.name} from {target_start} to {target_end}")
 
             # Get sales for the date (using date() extraction from DateTimeField)
+            # Get sales for the date range
             sales = SaleInvoice.objects.filter(
                 outlet=outlet,
-                invoice_date__date=target_date,
+                invoice_date__date__gte=target_start,
+                invoice_date__date__lte=target_end,
                 is_return=False
             )
 
@@ -1213,13 +1222,28 @@ class DashboardDailyView(APIView):
             total_sales = float(aggregates['total_sales'] or 0)
             total_bills = aggregates['total_bills'] or 0
             
+            # Sales Returns
+            return_sales = SaleInvoice.objects.filter(
+                outlet=outlet,
+                invoice_date__date__gte=target_start,
+                invoice_date__date__lte=target_end,
+                is_return=True
+            )
+            return_aggregates = return_sales.aggregate(
+                total_returns=Sum('grand_total'),
+                return_count=Count('id')
+            )
+            total_returns = float(return_aggregates['total_returns'] or 0)
+            return_count = return_aggregates['return_count'] or 0
+            
             # Derive cash and bank net flows strictly from JournalLine
             from apps.accounts.models import JournalLine, Ledger
             from django.db.models.functions import Coalesce
             
             cash_agg = JournalLine.objects.filter(
                 journal_entry__outlet=outlet,
-                journal_entry__date=target_date,
+                journal_entry__date__gte=target_start,
+                journal_entry__date__lte=target_end,
                 ledger__group__name='Cash in Hand'
             ).aggregate(
                 tot_collected=Coalesce(Sum('debit_amount'), Decimal('0'))
@@ -1228,7 +1252,8 @@ class DashboardDailyView(APIView):
 
             bank_agg = JournalLine.objects.filter(
                 journal_entry__outlet=outlet,
-                journal_entry__date=target_date,
+                journal_entry__date__gte=target_start,
+                journal_entry__date__lte=target_end,
                 ledger__group__name='Bank Accounts'
             ).aggregate(
                 tot_collected=Coalesce(Sum('debit_amount'), Decimal('0'))
@@ -1259,7 +1284,8 @@ class DashboardDailyView(APIView):
             # Top selling items (by quantity)
             top_items = SaleItem.objects.filter(
                 invoice__outlet=outlet,
-                invoice__invoice_date__date=target_date,
+                invoice__invoice_date__date__gte=target_start,
+                invoice__invoice_date__date__lte=target_end,
                 invoice__is_return=False
             ).values('batch__product_id', 'product_name').annotate(
                 total_qty=Sum('qty_strips'),
@@ -1330,12 +1356,16 @@ class DashboardDailyView(APIView):
             total_gst = float((gst_agg['c'] or 0) + (gst_agg['s'] or 0) + (gst_agg['i'] or 0))
 
             # Alerts
-            alerts = self._get_daily_alerts(outlet, target_date)
+            alerts = self._get_daily_alerts(outlet, target_end)
 
             result = {
-                'date': target_date.isoformat(),
+                'date': target_end.isoformat(),
+                'startDate': target_start.isoformat(),
+                'endDate': target_end.isoformat(),
                 'totalSales': total_sales,
                 'totalBills': total_bills,
+                'salesReturnAmount': total_returns,
+                'salesReturnCount': return_count,
                 'cashCollected': cash_collected,
                 'upiCollected': upi_collected,
                 'cardCollected': card_collected,
@@ -1662,22 +1692,23 @@ class SaleDetailView(APIView):
     Get details of a specific sale invoice.
     """
     
-    permission_classes = [IsAuthenticated]
+    def get_permissions(self):
+        if self.request.method == 'PUT':
+            return [CanEditSalesInvoice()]
+        return [IsAuthenticated()]
 
     def get(self, request, sale_id, *args, **kwargs):
         outlet_id = request.query_params.get('outletId')
         
         try:
-            outlet = Outlet.objects.get(id=outlet_id)
-        except Outlet.DoesNotExist:
-            return Response(
-                {'detail': f'Outlet {outlet_id} not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-            
-        try:
-            invoice = SaleInvoice.objects.select_related('customer', 'billed_by').get(id=sale_id, outlet=outlet)
-        except SaleInvoice.DoesNotExist:
+            if outlet_id:
+                # Filter by outlet if provided (stricter security)
+                outlet = Outlet.objects.get(id=outlet_id)
+                invoice = SaleInvoice.objects.select_related('customer', 'billed_by').get(id=sale_id, outlet=outlet)
+            else:
+                # Fetch by ID only — used by billing detail page which doesn't pass outletId
+                invoice = SaleInvoice.objects.select_related('customer', 'billed_by').get(id=sale_id)
+        except (Outlet.DoesNotExist, SaleInvoice.DoesNotExist):
             return Response(
                 {'detail': f'Sale {sale_id} not found'},
                 status=status.HTTP_404_NOT_FOUND
@@ -1750,6 +1781,25 @@ class SaleDetailView(APIView):
         }
         
         return Response(result, status=status.HTTP_200_OK)
+
+    def put(self, request, sale_id, *args, **kwargs):
+        """Update a sale invoice."""
+        outlet_id = request.data.get('outletId')
+        if not outlet_id:
+            return Response({'detail': 'outletId is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        updated_by_id = str(request.user.id)
+        from apps.billing.services import atomic_sale_update, SaleServiceError
+        
+        try:
+            invoice = atomic_sale_update(sale_id, request.data, outlet_id, updated_by_id)
+            return Response({'id': str(invoice.id), 'message': 'Sale invoice updated successfully'}, status=status.HTTP_200_OK)
+        except SaleServiceError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error updating sale invoice: {e}", exc_info=True)
+            return Response({'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class CreditTransactionListView(APIView):

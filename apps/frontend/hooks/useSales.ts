@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOutletId } from '@/hooks/useOutletId';
 import { salesApi } from '@/lib/apiClient';
 import { SaleInvoiceSummary, SaleItemDetail, SaleInvoice, PaginatedResponse } from '@/types';
@@ -57,3 +57,17 @@ export function useSaleById(saleId: string | null) {
         staleTime: 60_000,
     });
 }
+
+export function useUpdateSale() {
+    const queryClient = useQueryClient();
+    
+    return useMutation({
+        mutationFn: ({ id, payload }: { id: string; payload: any }) => salesApi.update(id, payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['sales'] });
+            queryClient.invalidateQueries({ queryKey: ['inventory'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        },
+    });
+}
+

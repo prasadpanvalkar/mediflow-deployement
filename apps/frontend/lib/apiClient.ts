@@ -387,6 +387,19 @@ const realSalesApi = {
             items: data.items ?? data.sale_items ?? data.saleItems ?? [],
         };
     },
+    update: async (id: string, payload: any): Promise<SaleInvoice> => {
+        const response = await fetch(`${API_URL}/sales/${id}/`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify(payload),
+        });
+        await assertOk(response);
+        const data = await response.json();
+        return {
+            ...data,
+            items: data.items ?? data.sale_items ?? data.saleItems ?? [],
+        };
+    },
     list: async (outletId: string, params?: any): Promise<PaginatedResponse<SaleInvoice>> => {
         let url = `${API_URL}/sales/?outletId=${outletId}`;
         if (params?.page) url += `&page=${params.page}`;
@@ -568,9 +581,15 @@ const realCreditApi = {
 };
 
 const realDashboardApi = {
-    getDailySummary: async (outletId: string, date: string): Promise<DashboardKPI> => {
+    getDailySummary: async (outletId: string, date: string, startDate?: string, endDate?: string): Promise<DashboardKPI> => {
+        let url = `${API_URL}/dashboard/daily/?outletId=${outletId}`;
+        if (startDate && endDate) {
+            url += `&startDate=${startDate}&endDate=${endDate}`;
+        } else {
+            url += `&date=${date}`;
+        }
         const response = await fetch(
-            `${API_URL}/dashboard/daily/?outletId=${outletId}&date=${date}`,
+            url,
             { headers: getHeaders() }
         );
         await assertOk(response);
@@ -708,6 +727,15 @@ const realPurchasesApi = {
                 ledgerNote: payload.ledgerNote,
                 grandTotal: payload.grandTotal,
             }),
+        });
+        await assertOk(response);
+        return response.json();
+    },
+    update: async (id: string, payload: CreatePurchasePayload): Promise<PurchaseInvoiceFull> => {
+        const response = await fetch(`${API_URL}/purchases/${id}/`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify(payload),
         });
         await assertOk(response);
         return response.json();

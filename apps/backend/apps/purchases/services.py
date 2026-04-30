@@ -94,9 +94,9 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
 
         # ─── Step 3: Get or create Staff (created_by) ──────────────────────────────────
         try:
-            created_by = Staff.objects.get(id=created_by_id, outlet=outlet)
+            created_by = Staff.objects.get(id=created_by_id)
         except Staff.DoesNotExist:
-            raise PurchaseServiceError(f"Staff {created_by_id} not found for outlet {outlet_id}")
+            raise PurchaseServiceError(f"Staff {created_by_id} not found")
 
         # ─── Step 4: Create PurchaseInvoice ────────────────────────────────────────────
         # Parse invoice date - strip any timezone suffix (Z or +05:30); app runs in IST natively.
@@ -397,7 +397,7 @@ def bill_by_bill_payment_allocate(payload: Dict[str, Any], outlet_id: str, creat
             raise
 
         try:
-            created_by = Staff.objects.get(id=created_by_id, outlet=outlet)
+            created_by = Staff.objects.get(id=created_by_id)
         except Staff.DoesNotExist:
             raise
 
@@ -534,3 +534,294 @@ def bill_by_bill_payment_allocate(payload: Dict[str, Any], outlet_id: str, creat
     except Exception as e:
         logger.error(f"Unexpected error during payment allocation: {e}", exc_info=True)
         raise OverpaymentError(f"Unexpected error: {str(e)}")
+
+
+def rebuild_distributor_ledger(outlet_id: str, distributor_id: str, from_date):
+    """Recalculate running_balance for a distributor from a specific date."""
+    entries = LedgerEntry.objects.filter(
+        outlet_id=outlet_id, 
+        distributor_id=distributor_id, 
+        date__gte=from_date
+    ).order_by('date', 'created_at')
+    
+    prev = LedgerEntry.objects.filter(
+        outlet_id=outlet_id, 
+        distributor_id=distributor_id, 
+        date__lt=from_date
+    ).order_by('-date', '-created_at').first()
+    
+    running = prev.running_balance if prev else Decimal('0')
+    
+    for entry in entries:
+        running = running + entry.debit - entry.credit
+        LedgerEntry.objects.filter(pk=entry.pk).update(running_balance=running)
+
+
+@transaction.atomic
+def atomic_purchase_update(purchase_id: str, payload: Dict[str, Any], outlet_id: str, updated_by_id: str) -> PurchaseInvoice:
+    """
+    Atomically update an existing purchase invoice with items, batch modifications, and ledger entries.
+    """
+    try:
+        from apps.accounts.models import JournalEntry
+        from apps.accounts.services import LedgerService
+        from apps.accounts.journal_service import _get_ledger, _create_lines_and_update_balances
+
+        # ─── Step 1: Validate and get PurchaseInvoice ─────────────────────────────
+        try:
+            purchase_invoice = PurchaseInvoice.objects.select_for_update().get(id=purchase_id, outlet_id=outlet_id)
+        except PurchaseInvoice.DoesNotExist:
+            raise PurchaseServiceError(f"Purchase {purchase_id} not found")
+
+        old_invoice_no = purchase_invoice.invoice_no
+        outlet = Outlet.objects.get(id=outlet_id)
+
+        # ─── Step 2: Validate and get Distributor ─────────────────────────────────
+        party_ledger_id = payload.get('partyLedgerId')
+        if not party_ledger_id:
+            raise PurchaseServiceError("partyLedgerId is required")
+
+        try:
+            party_ledger = Ledger.objects.select_related('linked_distributor').get(
+                id=party_ledger_id, outlet=outlet
+            )
+        except Ledger.DoesNotExist:
+            raise PurchaseServiceError(f"Ledger {party_ledger_id} not found")
+
+        if party_ledger.linked_distributor:
+            distributor = party_ledger.linked_distributor
+        else:
+            raise PurchaseServiceError(f"Ledger {party_ledger_id} is not linked to a distributor")
+
+        try:
+            updated_by = Staff.objects.get(id=updated_by_id)
+        except Staff.DoesNotExist:
+            raise PurchaseServiceError(f"Staff {updated_by_id} not found")
+
+        # ─── Step 3: Revert old items and batches ─────────────────────────────────
+        # Use queryset .update() + Greatest(0) to bypass Batch.clean() validator.
+        # If stock was partially sold since the purchase, a naive subtraction would
+        # make qty_strips negative and raise ValidationError.
+        from django.db.models import F
+        from django.db.models.functions import Greatest
+        from apps.inventory.models import Batch as BatchModel
+
+        old_items = list(purchase_invoice.items.all())
+        for old_item in old_items:
+            batch = old_item.batch
+            if batch:
+                total_strips = old_item.qty + old_item.free_qty
+                BatchModel.objects.filter(pk=batch.pk).update(
+                    qty_strips=Greatest(F('qty_strips') - total_strips, 0)
+                )
+            old_item.delete()
+
+        # ─── Step 4: Revert old accounting ────────────────────────────────────────
+        old_jes = JournalEntry.objects.filter(outlet=outlet, source_type='PURCHASE', source_id=purchase_invoice.id)
+        for old_je in old_jes:
+            for line in old_je.lines.all():
+                LedgerService.update_balance(line.ledger.id, debit=line.credit_amount, credit=line.debit_amount)
+            old_je.delete()
+            
+        if purchase_invoice.purchase_type == 'cash':
+            old_cash_jes = JournalEntry.objects.filter(outlet=outlet, source_type='PURCHASE_PAYMENT', source_id=purchase_invoice.id)
+            for old_je in old_cash_jes:
+                for line in old_je.lines.all():
+                    LedgerService.update_balance(line.ledger.id, debit=line.credit_amount, credit=line.debit_amount)
+                old_je.delete()
+
+        # ─── Step 5: Update PurchaseInvoice ───────────────────────────────────────
+        invoice_date_str = payload['invoiceDate'].rstrip('Z').split('+')[0]
+        invoice_date = datetime.fromisoformat(invoice_date_str)
+        purchase_type = payload.get('purchaseType', 'credit')
+
+        due_date = None
+        if payload.get('dueDate'):
+            due_date = datetime.fromisoformat(payload['dueDate'].rstrip('Z').split('+')[0]).date()
+        elif purchase_type == 'credit':
+            due_date = invoice_date.date() + timedelta(days=distributor.credit_days)
+
+        grand_total = Decimal(str(payload['grandTotal']))
+
+        purchase_invoice.distributor = distributor
+        purchase_invoice.invoice_no = payload['invoiceNo']
+        purchase_invoice.invoice_date = invoice_date.date()
+        purchase_invoice.due_date = due_date
+        purchase_invoice.purchase_type = purchase_type
+        purchase_invoice.purchase_order_ref = payload.get('purchaseOrderRef')
+        purchase_invoice.godown = payload.get('godown', 'main')
+        purchase_invoice.subtotal = Decimal(str(payload['subtotal']))
+        purchase_invoice.discount_amount = Decimal(str(payload['discountAmount']))
+        purchase_invoice.taxable_amount = Decimal(str(payload['taxableAmount']))
+        purchase_invoice.gst_amount = Decimal(str(payload['gstAmount']))
+        purchase_invoice.cess_amount = Decimal(str(payload['cessAmount']))
+        purchase_invoice.freight = Decimal(str(payload.get('freight', 0)))
+        purchase_invoice.round_off = Decimal(str(payload.get('roundOff', 0)))
+        purchase_invoice.ledger_adjustment = Decimal(str(payload.get('ledgerAdjustment', 0)))
+        purchase_invoice.ledger_note = payload.get('ledgerNote') or None
+        purchase_invoice.grand_total = grand_total
+        
+        if purchase_type == 'cash':
+            purchase_invoice.amount_paid = grand_total
+            purchase_invoice.outstanding = Decimal('0')
+        else:
+            purchase_invoice.outstanding = grand_total - purchase_invoice.amount_paid
+            
+        purchase_invoice.notes = payload.get('notes')
+        purchase_invoice.created_by = updated_by
+        purchase_invoice.save()
+
+        # ─── Step 6: Create new items and batches ─────────────────────────────────
+        batch_cache: Dict[tuple, Batch] = {}
+        purchase_items = []
+        items_payload = payload.get('items', [])
+
+        for idx, item_payload in enumerate(items_payload):
+            master_product = None
+            if item_payload.get('masterProductId'):
+                try:
+                    master_product = MasterProduct.objects.get(id=item_payload['masterProductId'])
+                except MasterProduct.DoesNotExist:
+                    pass
+
+            batch_no = item_payload['batchNo']
+            raw_expiry = item_payload['expiryDate']
+            try:
+                expiry_date = datetime.fromisoformat(raw_expiry.rstrip('Z').split('+')[0]).date()
+            except (ValueError, TypeError):
+                import re as _re
+                m = _re.match(r'^(\d{1,2})[\/\-](\d{2,4})$', raw_expiry)
+                if m:
+                    month = int(m.group(1))
+                    year_raw = m.group(2)
+                    year = int(year_raw) + 2000 if len(year_raw) == 2 else int(year_raw)
+                    from datetime import date as _date
+                    expiry_date = _date(year, month, 1)
+                else:
+                    raise PurchaseServiceError("Invalid expiry format")
+            
+            batch_key = (batch_no, expiry_date)
+            total_strips = int(item_payload['qty']) + int(item_payload.get('freeQty', 0))
+
+            if batch_key in batch_cache:
+                batch = batch_cache[batch_key]
+                batch.qty_strips += total_strips
+                batch.save(update_fields=['qty_strips'])
+            else:
+                try:
+                    batch = Batch.objects.get(
+                        outlet=outlet,
+                        batch_no=batch_no,
+                        expiry_date=expiry_date,
+                        product=master_product
+                    )
+                    batch.qty_strips += total_strips
+                    batch.save(update_fields=['qty_strips'])
+                except Batch.DoesNotExist:
+                    batch = Batch.objects.create(
+                        outlet=outlet,
+                        product=master_product,
+                        batch_no=batch_no,
+                        expiry_date=expiry_date,
+                        mrp=Decimal(str(item_payload['mrp'])),
+                        purchase_rate=Decimal(str(item_payload['purchaseRate'])),
+                        sale_rate=Decimal(str(item_payload['saleRate'])),
+                        qty_strips=total_strips,
+                        qty_loose=0,
+                        rack_location='',
+                    )
+                batch_cache[batch_key] = batch
+
+            purchase_item = PurchaseItem(
+                invoice=purchase_invoice,
+                batch=batch,
+                master_product=master_product,
+                custom_product_name=item_payload.get('customProductName'),
+                is_custom_product=item_payload.get('isCustomProduct', False),
+                hsn_code=item_payload.get('hsnCode'),
+                batch_no=batch_no,
+                expiry_date=expiry_date,
+                pkg=(master_product.pack_size if master_product and master_product.pack_size else int(item_payload.get('pkg') or 1)) or 1,
+                qty=int(item_payload['qty']),
+                actual_qty=int(item_payload['actualQty']),
+                free_qty=int(item_payload.get('freeQty', 0)),
+                purchase_rate=Decimal(str(item_payload['purchaseRate'])),
+                discount_pct=Decimal(str(item_payload.get('discountPct', 0))),
+                cash_discount_pct=Decimal(str(item_payload.get('cashDiscountPct', 0))),
+                gst_rate=Decimal(str(item_payload.get('gstRate', 0))),
+                cess=Decimal(str(item_payload.get('cess', 0))),
+                mrp=Decimal(str(item_payload['mrp'])),
+                ptr=Decimal(str(item_payload['ptr'])),
+                pts=Decimal(str(item_payload['pts'])),
+                sale_rate=Decimal(str(item_payload['saleRate'])),
+                taxable_amount=Decimal(str(item_payload['taxableAmount'])),
+                gst_amount=Decimal(str(item_payload['gstAmount'])),
+                cess_amount=Decimal(str(item_payload.get('cessAmount', 0))),
+                total_amount=Decimal(str(item_payload['totalAmount'])),
+            )
+            purchase_items.append(purchase_item)
+
+        PurchaseItem.objects.bulk_create(purchase_items)
+
+        # ─── Step 7: Update LedgerEntry ───────────────────────────────────────────
+        ledger_entry = LedgerEntry.objects.filter(
+            outlet=outlet,
+            entity_type='distributor',
+            entry_type='purchase',
+            reference_no=old_invoice_no
+        ).first()
+
+        if ledger_entry:
+            LedgerEntry.objects.filter(pk=ledger_entry.pk).update(
+                debit=grand_total,
+                date=invoice_date.date(),
+                reference_no=payload['invoiceNo'],
+                distributor=distributor
+            )
+            rebuild_distributor_ledger(outlet_id, distributor.id, min(ledger_entry.date, invoice_date.date()))
+        else:
+            # Recreate LedgerEntry if not found
+            last_ledger = LedgerEntry.objects.filter(
+                outlet=outlet,
+                distributor=distributor,
+                date__lte=invoice_date.date()
+            ).order_by('-date', '-created_at').first()
+            running_balance = (last_ledger.running_balance if last_ledger else Decimal('0')) + grand_total
+            LedgerEntry.objects.create(
+                outlet=outlet,
+                entity_type='distributor',
+                distributor=distributor,
+                date=invoice_date.date(),
+                entry_type='purchase',
+                reference_no=purchase_invoice.invoice_no,
+                description=f"Purchase from {distributor.name}",
+                debit=grand_total,
+                credit=Decimal('0'),
+                running_balance=running_balance,
+            )
+            rebuild_distributor_ledger(outlet_id, distributor.id, invoice_date.date())
+
+        # ─── Step 8: Post new Journal ─────────────────────────────────────────────
+        post_purchase_invoice(purchase_invoice, distributor_ledger=party_ledger)
+        if purchase_type == 'cash':
+            cash_ledger = _get_ledger(outlet, 'Cash')
+            payment_je = JournalEntry.objects.create(
+                outlet=outlet,
+                source_type='PURCHASE_PAYMENT',
+                source_id=purchase_invoice.id,
+                date=invoice_date.date(),
+                narration=f"Cash payment for Purchase Invoice {purchase_invoice.invoice_no}",
+            )
+            _create_lines_and_update_balances(payment_je, [
+                ('debit',  party_ledger, grand_total),
+                ('credit', cash_ledger,  grand_total),
+            ])
+
+        return purchase_invoice
+
+    except PurchaseServiceError:
+        raise
+    except ValidationError as e:
+        raise PurchaseServiceError(f"Validation error: {str(e)}")
+    except Exception as e:
+        raise PurchaseServiceError(f"Unexpected error: {str(e)}")

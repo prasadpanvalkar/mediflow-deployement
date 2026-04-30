@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import {
@@ -197,6 +197,7 @@ function VoucherDetailModal({
 
 export default function LedgerStatementPage() {
     const { id } = useParams<{ id: string }>();
+    const router = useRouter();
     const outletId = useOutletId();
     const { toast } = useToast();
 
@@ -273,7 +274,12 @@ export default function LedgerStatementPage() {
             return;
         }
 
-        // For SALE / RETURN etc — just show a toast for now (can extend)
+        if (tx.sourceType === 'SALE') {
+            router.push(`/dashboard/billing/${tx.sourceId}`);
+            return;
+        }
+
+        // For RETURN etc — just show a toast for now (can extend)
         toast({ title: `${txTypeLabel(tx.sourceType)} — ${tx.description}` });
     }
 

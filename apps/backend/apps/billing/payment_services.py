@@ -108,7 +108,7 @@ def create_receipt_payment(payload: Dict[str, Any], outlet_id: str, created_by_i
         raise ReceiptServiceError(f"Customer {customer_id} not found")
 
     try:
-        created_by = Staff.objects.get(id=created_by_id, outlet=outlet)
+        created_by = Staff.objects.get(id=created_by_id)
     except Staff.DoesNotExist:
         raise ReceiptServiceError(f"Staff {created_by_id} not found")
 
@@ -207,7 +207,7 @@ def create_expense_entry(payload: Dict[str, Any], outlet_id: str, created_by_id:
         raise ExpenseServiceError(f"Outlet {outlet_id} not found")
 
     try:
-        created_by = Staff.objects.get(id=created_by_id, outlet=outlet)
+        created_by = Staff.objects.get(id=created_by_id)
     except Staff.DoesNotExist:
         raise ExpenseServiceError(f"Staff {created_by_id} not found")
 
@@ -258,7 +258,7 @@ def create_sales_return(payload: Dict[str, Any], outlet_id: str, created_by_id: 
         raise ReturnServiceError(f"Outlet {outlet_id} not found")
 
     try:
-        created_by = Staff.objects.get(id=created_by_id, outlet=outlet)
+        created_by = Staff.objects.get(id=created_by_id)
     except Staff.DoesNotExist:
         raise ReturnServiceError(f"Staff {created_by_id} not found")
 

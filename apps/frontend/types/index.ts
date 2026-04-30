@@ -148,6 +148,8 @@ export interface StaffMember {
     canViewPurchaseRates: boolean;
     canCreatePurchases: boolean;
     canAccessReports: boolean;
+    canEditSales: boolean;
+    canEditPurchases: boolean;
     isActive: boolean;
     joiningDate: string;
     lastLogin?: string;
@@ -161,6 +163,8 @@ export interface StaffPinVerifyResponse {
     maxDiscount: number;
     canEditRate: boolean;
     canViewPurchaseRates?: boolean;
+    canEditSales?: boolean;
+    canEditPurchases?: boolean;
     billsToday: number;
     totalSalesToday: number;
 }
@@ -649,6 +653,15 @@ export interface PurchaseInvoiceFull extends PurchaseInvoice {
     purchaseOrderRef?: string;
     godown: GodownLocation | string; // string fallback for custom godowns
     notes?: string;
+    // Party ledger — resolved from distributor link on read
+    partyLedgerId?: string | null;
+    partyLedger?: {
+        id: string;
+        name: string;
+        group: string;
+        currentBalance: number;
+        state?: string;
+    } | null;
 }
 
 // ─── Purchase Payloads ────────────────────────────────────────────────────────
@@ -765,6 +778,8 @@ export interface DashboardKPI {
     date: string;
     totalSales: number;
     totalBills: number;
+    salesReturnAmount?: number;
+    salesReturnCount?: number;
     cashCollected: number;
     upiCollected: number;
     cardCollected: number;

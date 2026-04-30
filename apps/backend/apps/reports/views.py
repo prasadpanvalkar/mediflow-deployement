@@ -1,8 +1,7 @@
 import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from apps.core.permissions import IsAdminStaff
+from apps.core.permissions import IsAdminStaff, CanAccessReports
 from rest_framework import status
 from django.db.models import Sum, Count, Q
 from datetime import datetime
@@ -41,7 +40,7 @@ class SalesDailyReportView(APIView):
     Get daily sales report with summary cards and chart data.
     """
 
-    permission_classes = [IsAdminStaff]
+    permission_classes = [CanAccessReports]
 
     def get(self, request, *args, **kwargs):
         """
@@ -181,7 +180,7 @@ class GSTR1ReportView(APIView):
     Matches the GSTSummary + GSTReportRow TypeScript interfaces exactly.
     """
 
-    permission_classes = [IsAdminStaff]
+    permission_classes = [CanAccessReports]
 
     def get(self, request, *args, **kwargs):
         outlet_id = request.query_params.get('outletId')
@@ -327,7 +326,7 @@ class GSTR1ReportView(APIView):
 
 class SalesSummaryReportView(APIView):
     """GET /api/v1/reports/sales/summary/?from=&to="""
-    permission_classes = [IsAdminStaff]
+    permission_classes = [CanAccessReports]
 
     def get(self, request, *args, **kwargs):
         from django.db.models import Avg, F
@@ -416,7 +415,7 @@ class SalesSummaryReportView(APIView):
 
 class GSTR2ReportView(APIView):
     """GET /api/v1/reports/gst/gstr2/?from=&to="""
-    permission_classes = [IsAdminStaff]
+    permission_classes = [CanAccessReports]
 
     def get(self, request, *args, **kwargs):
         from apps.purchases.models import PurchaseInvoice, PurchaseItem
@@ -492,7 +491,7 @@ class GSTR2ReportView(APIView):
 
 class GSTR3BReportView(APIView):
     """GET /api/v1/reports/gst/gstr3b/?month=2026-03"""
-    permission_classes = [IsAdminStaff]
+    permission_classes = [CanAccessReports]
 
     def get(self, request, *args, **kwargs):
         from apps.purchases.models import PurchaseInvoice
@@ -566,7 +565,7 @@ class GSTR3BReportView(APIView):
 
 class InventoryValuationView(APIView):
     """GET /api/v1/reports/inventory/valuation/"""
-    permission_classes = [IsAdminStaff]
+    permission_classes = [CanAccessReports]
 
     def get(self, request, *args, **kwargs):
         from apps.inventory.models import Batch, MasterProduct
@@ -642,7 +641,7 @@ class InventoryValuationView(APIView):
 
 class InventoryMovementReportView(APIView):
     """GET /api/v1/reports/inventory/movement/?productId=&from=&to="""
-    permission_classes = [IsAdminStaff]
+    permission_classes = [CanAccessReports]
 
     def get(self, request, *args, **kwargs):
         from apps.inventory.models import Batch, MasterProduct
@@ -753,7 +752,7 @@ class InventoryMovementReportView(APIView):
 
 class ExpiryReportView(APIView):
     """GET /api/v1/reports/expiry/?days=30"""
-    permission_classes = [IsAdminStaff]
+    permission_classes = [CanAccessReports]
 
     def get(self, request, *args, **kwargs):
         from apps.inventory.models import Batch
@@ -817,7 +816,7 @@ class ExpiryReportView(APIView):
 
 class StaffPerformanceReportView(APIView):
     """GET /api/v1/reports/staff/performance/?from=&to="""
-    permission_classes = [IsAdminStaff]
+    permission_classes = [CanAccessReports]
 
     def get(self, request, *args, **kwargs):
         from apps.accounts.models import Staff
@@ -891,7 +890,7 @@ class BalanceSheetView(APIView):
     Snapshot balance sheet: Assets (stock + receivables) vs Liabilities (payables).
     """
 
-    permission_classes = [IsAdminStaff]
+    permission_classes = [CanAccessReports]
 
     def get(self, request):
         outlet_id = request.GET.get('outletId') or str(request.user.outlet_id)
@@ -985,7 +984,7 @@ class GSTR2AReconciliationView(APIView):
     Phase 3: uses mock GSTR-2A data. Phase 4 will wire real GSTN API.
     """
 
-    permission_classes = [IsAdminStaff]
+    permission_classes = [CanAccessReports]
 
     def post(self, request):
         gstin = request.data.get('gstin', '')

@@ -53,6 +53,8 @@ export function StaffFormModal({ open, onClose, editingStaff }: StaffFormModalPr
                 canViewPurchaseRates: false,
                 canCreatePurchases: false,
                 canAccessReports: false,
+                canEditSales: false,
+                canEditPurchases: false,
             }
         });
 
@@ -75,6 +77,8 @@ export function StaffFormModal({ open, onClose, editingStaff }: StaffFormModalPr
                 canViewPurchaseRates: editingStaff.canViewPurchaseRates ?? false,
                 canCreatePurchases: editingStaff.canCreatePurchases ?? false,
                 canAccessReports: editingStaff.canAccessReports ?? false,
+                canEditSales: editingStaff.canEditSales ?? false,
+                canEditPurchases: editingStaff.canEditPurchases ?? false,
             });
         } else {
             reset();
@@ -334,6 +338,8 @@ export function StaffFormModal({ open, onClose, editingStaff }: StaffFormModalPr
                                 { key: 'canViewPurchaseRates', label: 'Can View Purchase Rates', desc: 'See cost price in inventory' },
                                 { key: 'canCreatePurchases', label: 'Can Create Purchases', desc: 'Add new GRN / purchase invoices' },
                                 { key: 'canAccessReports', label: 'Can Access Reports', desc: 'View sales, GST, stock reports' },
+                                { key: 'canEditSales', label: 'Can Edit Sales', desc: 'Modify existing sale invoices' },
+                                { key: 'canEditPurchases', label: 'Can Edit Purchases', desc: 'Modify existing purchase invoices' },
                             ].map(({ key, label, desc }) => (
                                 <div key={key} className="flex items-center justify-between p-3 rounded-lg bg-slate-50">
                                     <div>

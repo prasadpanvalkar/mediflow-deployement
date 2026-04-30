@@ -2,8 +2,8 @@ import logging
 import re
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from apps.core.permissions import IsAdminStaff
+from rest_framework.permissions import AllowAny
+from apps.core.permissions import IsAdminStaff, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework import status
 from django.db.models import Q, Sum
@@ -120,6 +120,8 @@ class LoginView(APIView):
             'canViewPurchaseRates': staff.can_view_purchase_rates,
             'canCreatePurchases': staff.can_create_purchases,
             'canAccessReports': staff.can_access_reports,
+            'canEditSales': staff.can_edit_sales,
+            'canEditPurchases': staff.can_edit_purchases,
         }
 
         response_data = {
@@ -198,6 +200,8 @@ class SwitchOutletView(APIView):
             'canViewPurchaseRates': staff.can_view_purchase_rates,
             'canCreatePurchases': staff.can_create_purchases,
             'canAccessReports': staff.can_access_reports,
+            'canEditSales': staff.can_edit_sales,
+            'canEditPurchases': staff.can_edit_purchases,
         }
 
         response_data = {
@@ -251,6 +255,8 @@ class StaffMeView(APIView):
             'canViewPurchaseRates': staff.can_view_purchase_rates,
             'canCreatePurchases': staff.can_create_purchases,
             'canAccessReports': staff.can_access_reports,
+            'canEditSales': staff.can_edit_sales,
+            'canEditPurchases': staff.can_edit_purchases,
         }
 
         return Response(user_data, status=status.HTTP_200_OK)
@@ -793,6 +799,8 @@ class StaffLookupByPinView(APIView):
             'maxDiscount': float(staff.max_discount),
             'canEditRate': staff.can_edit_rate,
             'canViewPurchaseRates': staff.can_view_purchase_rates,
+            'canEditSales': staff.can_edit_sales,
+            'canEditPurchases': staff.can_edit_purchases,
             'billsToday': bills_today,
             'totalSalesToday': float(total_sales_today),
         }
@@ -839,6 +847,8 @@ class StaffListView(APIView):
                 'canViewPurchaseRates': s.can_view_purchase_rates,
                 'canCreatePurchases': s.can_create_purchases,
                 'canAccessReports': s.can_access_reports,
+                'canEditSales': s.can_edit_sales,
+                'canEditPurchases': s.can_edit_purchases,
                 'isActive': s.is_active,
                 'joiningDate': s.joining_date.isoformat() if s.joining_date else None,
                 'lastLogin': s.last_login.isoformat() if s.last_login else None,
@@ -938,6 +948,8 @@ class StaffPinVerifyView(APIView):
             'maxDiscount': float(staff.max_discount),
             'canEditRate': staff.can_edit_rate,
             'canViewPurchaseRates': staff.can_view_purchase_rates,
+            'canEditSales': staff.can_edit_sales,
+            'canEditPurchases': staff.can_edit_purchases,
             'billsToday': bills_today,
             'totalSalesToday': float(total_sales_today),
         }
@@ -1034,6 +1046,8 @@ def _serialize_staff(s):
         'canViewPurchaseRates': s.can_view_purchase_rates,
         'canCreatePurchases': s.can_create_purchases,
         'canAccessReports': s.can_access_reports,
+        'canEditSales': s.can_edit_sales,
+        'canEditPurchases': s.can_edit_purchases,
         'isActive': s.is_active,
         'joiningDate': s.joining_date.isoformat() if s.joining_date else None,
         'lastLogin': s.last_login.isoformat() if s.last_login else None,
@@ -1089,6 +1103,8 @@ class StaffCreateView(APIView):
             can_view_purchase_rates=request.data.get('canViewPurchaseRates', False),
             can_create_purchases=request.data.get('canCreatePurchases', False),
             can_access_reports=request.data.get('canAccessReports', False),
+            can_edit_sales=request.data.get('canEditSales', False),
+            can_edit_purchases=request.data.get('canEditPurchases', False),
             is_active=True,
         )
         return Response({'success': True, 'data': _serialize_staff(staff)}, status=status.HTTP_201_CREATED)
@@ -1113,13 +1129,15 @@ class StaffDetailView(APIView):
             return Response({'detail': 'Staff not found'}, status=status.HTTP_404_NOT_FOUND)
 
         updatable = ('name', 'email', 'role', 'max_discount', 'can_edit_rate',
-                     'can_view_purchase_rates', 'can_create_purchases', 'can_access_reports', 'is_active')
+                     'can_view_purchase_rates', 'can_create_purchases', 'can_access_reports', 'can_edit_sales', 'can_edit_purchases', 'is_active')
         camel_map = {
             'maxDiscount': 'max_discount',
             'canEditRate': 'can_edit_rate',
             'canViewPurchaseRates': 'can_view_purchase_rates',
             'canCreatePurchases': 'can_create_purchases',
             'canAccessReports': 'can_access_reports',
+            'canEditSales': 'can_edit_sales',
+            'canEditPurchases': 'can_edit_purchases',
             'isActive': 'is_active',
         }
         for camel, snake in camel_map.items():

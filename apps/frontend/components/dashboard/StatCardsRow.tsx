@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { IndianRupee, Banknote, Receipt, CreditCard } from 'lucide-react';
+import { IndianRupee, Banknote, Receipt, CreditCard, RotateCcw } from 'lucide-react';
 import { DashboardKPI } from '@/types';
 import { formatCurrency } from '@/lib/gst';
 import { StatCard } from './StatCard';
@@ -17,11 +17,12 @@ export default function StatCardsRow({ kpi, isLoading }: StatCardsRowProps) {
   // If loading or no data yet, render loading skeletons
   if (isLoading || !kpi) {
     return (
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard title="..." value="..." icon={IndianRupee} iconBg="bg-slate-100" iconColor="text-slate-400" isLoading />
         <StatCard title="..." value="..." icon={Banknote} iconBg="bg-slate-100" iconColor="text-slate-400" isLoading />
         <StatCard title="..." value="..." icon={Receipt} iconBg="bg-slate-100" iconColor="text-slate-400" isLoading />
         <StatCard title="..." value="..." icon={CreditCard} iconBg="bg-slate-100" iconColor="text-slate-400" isLoading />
+        <StatCard title="..." value="..." icon={RotateCcw} iconBg="bg-slate-100" iconColor="text-slate-400" isLoading />
       </div>
     );
   }
@@ -29,7 +30,7 @@ export default function StatCardsRow({ kpi, isLoading }: StatCardsRowProps) {
   const avgBill = kpi.totalBills > 0 ? (kpi.totalSales / kpi.totalBills) : 0;
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
       {/* 1. Total Sales */}
       <StatCard
         title="Today's Sales"
@@ -72,6 +73,17 @@ export default function StatCardsRow({ kpi, isLoading }: StatCardsRowProps) {
         iconColor="text-amber-600"
         trend={{ value: 5, direction: 'down', label: 'vs yesterday' }}
         onClick={() => router.push('/dashboard/credit')}
+      />
+
+      {/* 5. Sales Returns */}
+      <StatCard
+        title="Sales Returns"
+        value={formatCurrency(kpi.salesReturnAmount ?? 0)}
+        subtitle={`${kpi.salesReturnCount ?? 0} returns`}
+        icon={RotateCcw}
+        iconBg="bg-rose-100"
+        iconColor="text-rose-600"
+        onClick={() => router.push('/sales-returns')}
       />
     </div>
   );

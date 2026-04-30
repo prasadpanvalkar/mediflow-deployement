@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef } from 'react';
-import { Printer, Download, FileText } from 'lucide-react';
+import { Printer, Download, FileText, Edit } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -15,9 +15,10 @@ interface InvoicePreviewModalProps {
     onClose: () => void;
     invoice: SaleInvoice | null;
     onNewBill?: () => void;
+    onEdit?: (invoice: SaleInvoice) => void;
 }
 
-export function InvoicePreviewModal({ isOpen, onClose, invoice, onNewBill }: InvoicePreviewModalProps) {
+export function InvoicePreviewModal({ isOpen, onClose, invoice, onNewBill, onEdit }: InvoicePreviewModalProps) {
     const { printerType } = useSettingsStore();
     const printRef = useRef<HTMLDivElement>(null);
 
@@ -73,6 +74,11 @@ export function InvoicePreviewModal({ isOpen, onClose, invoice, onNewBill }: Inv
                     </div>
                     
                     <div className="flex items-center gap-2">
+                        {onEdit && (
+                            <Button variant="outline" size="sm" onClick={() => onEdit(invoice)}>
+                                <Edit className="w-4 h-4 mr-2" /> Edit
+                            </Button>
+                        )}
                         <Button variant="outline" size="sm" onClick={() => {}}>
                             <Download className="w-4 h-4 mr-2" /> PDF
                         </Button>

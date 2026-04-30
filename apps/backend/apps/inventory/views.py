@@ -1,8 +1,7 @@
 import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from apps.core.permissions import IsManagerOrAbove
+from apps.core.permissions import IsAuthenticated, IsManagerOrAbove
 from rest_framework import status
 from django.db.models import Q, Sum
 from datetime import datetime

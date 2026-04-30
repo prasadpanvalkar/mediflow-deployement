@@ -16,6 +16,8 @@ import { useSalesList, useSaleById } from '@/hooks/useSales';
 import { SaleInvoice } from '@/types';
 import { cn } from '@/lib/utils';
 import { InvoicePreviewModal } from '@/components/billing/InvoicePreviewModal';
+import { useBillingStore } from '@/store/billingStore';
+import { useAuthStore } from '@/store/authStore';
 
 // ── formatters ────────────────────────────────────────────────────────────────
 const fmt = (n: number | undefined) =>
@@ -48,7 +50,7 @@ const DATE_PRESETS = [
 ];
 
 // ── Invoice View Modal ────────────────────────────────────────────────────────
-function SaleInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: () => void }) {
+function SaleInvoiceModal({ invoiceId, onClose, onEdit }: { invoiceId: string; onClose: () => void; onEdit?: (invoice: SaleInvoice) => void }) {
     const { data: invoice } = useSaleById(invoiceId);
 
     return (
@@ -56,6 +58,7 @@ function SaleInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: 
             isOpen={true}
             onClose={onClose}
             invoice={invoice as any}
+            onEdit={onEdit}
         />
     );
 }
@@ -70,7 +73,62 @@ export default function SalesList() {
     const [activePreset, setActivePreset] = useState('Today');
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
-    const PAGE_SIZE = 50;
+    const user = useAuthStore((s) => s.user);
+    const canEdit = user?.role === 'super_admin' || user?.role === 'admin' || !!user?.canEditSales;
+
+    const handleEditSale = (invoice: SaleInvoice) => {
+        const store = useBillingStore.getState();
+        store.clearCart();
+        store.setCustomer(invoice.customer || null);
+        store.setEditingSaleId(invoice.id);
+        
+        const totalDiscountAmount = typeof invoice.discountAmount === 'number' ? invoice.discountAmount : 0;
+        const totalRateAmount = invoice.items?.reduce((sum, item) => {
+            const qty = item.totalQty || (item.qtyStrips || 0) * (item.packSize || 10) + (item.qtyLoose || 0);
+            return sum + (item.rate * qty);
+        }, 0) || 1;
+        const itemDiscountAmount = invoice.items?.reduce((sum, item) => {
+            const qty = item.totalQty || (item.qtyStrips || 0) * (item.packSize || 10) + (item.qtyLoose || 0);
+            return sum + ((item.mrp - item.rate) * qty);
+        }, 0) || 0;
+        
+        const extraDiscountAmount = Math.max(0, totalDiscountAmount - itemDiscountAmount);
+        const extraDiscountPct = totalRateAmount > 0 ? (extraDiscountAmount / totalRateAmount) * 100 : 0;
+        store.setExtraDiscountPct(extraDiscountPct);
+        
+        store.setPayment({
+            method: invoice.paymentMode as any,
+            amount: invoice.amountPaid || invoice.grandTotal,
+        });
+
+        if (invoice.doctorName || invoice.prescriptionNo) {
+             store.setScheduleHData({
+                 patientName: invoice.patientName || '',
+                 patientAge: 0,
+                 patientAddress: invoice.patientAddress || '',
+                 doctorName: invoice.doctorName || '',
+                 doctorRegNo: invoice.doctorRegNo || '',
+                 prescriptionNo: invoice.prescriptionNo || '',
+             });
+        }
+
+        if (invoice.items) {
+             invoice.items.forEach((item: any) => {
+                 store.addToCart({
+                     ...item,
+                     totalQty: item.totalQty || (item.qtyStrips || 0) * (item.packSize || 10) + (item.qtyLoose || 0),
+                     saleMode: item.saleMode || 'mixed',
+                     mrp: item.mrp || item.rate,
+                     saleRate: item.saleRate || item.rate,
+                     cgst: item.cgstRate || (item.gstRate ? item.gstRate / 2 : 0),
+                     sgst: item.sgstRate || (item.gstRate ? item.gstRate / 2 : 0),
+                 });
+             });
+        }
+
+        setSelectedInvoiceId(null);
+        router.push('/dashboard/billing');
+    };
 
     // When search is active: bypass date filters → search ALL dates (newest first)
     // When search is empty: apply selected date range
@@ -404,7 +462,11 @@ export default function SalesList() {
 
             {/* Invoice Modal */}
             {selectedInvoiceId && (
-                <SaleInvoiceModal invoiceId={selectedInvoiceId} onClose={() => setSelectedInvoiceId(null)} />
+                <SaleInvoiceModal 
+                    invoiceId={selectedInvoiceId} 
+                    onClose={() => setSelectedInvoiceId(null)} 
+                    onEdit={canEdit ? handleEditSale : undefined} 
+                />
             )}
         </div>
     );

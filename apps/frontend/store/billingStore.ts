@@ -24,6 +24,7 @@ interface BillingState {
     isCartOpen: boolean;
     searchQuery: string;
     lastInvoice: SaleInvoice | null;
+    editingSaleId: string | null;
 
     extraDiscountPct: number;
 
@@ -44,6 +45,7 @@ interface BillingState {
     setSearchQuery: (q: string) => void;
     toggleCart: () => void;
     setLastInvoice: (inv: SaleInvoice | null) => void;
+    setEditingSaleId: (id: string | null) => void;
     resetBilling: () => void;
 
     backendRateErrors: Record<string, string>;
@@ -81,6 +83,7 @@ export const useBillingStore = create<BillingState>((set, get) => ({
     isCartOpen: false,
     searchQuery: '',
     lastInvoice: null,
+    editingSaleId: null,
     billsToday: 0,
     extraDiscountPct: 0,
     backendRateErrors: {},
@@ -150,6 +153,7 @@ export const useBillingStore = create<BillingState>((set, get) => ({
         scheduleHData: null,
         prescriptionImageUrl: null,
         extraDiscountPct: 0,
+        editingSaleId: null,
     }),
 
     setPayment: (updates) => set((state) => ({
@@ -161,6 +165,7 @@ export const useBillingStore = create<BillingState>((set, get) => ({
     setSearchQuery: (q) => set({ searchQuery: q }),
     toggleCart: () => set((state) => ({ isCartOpen: !state.isCartOpen })),
     setLastInvoice: (inv) => set({ lastInvoice: inv }),
+    setEditingSaleId: (id) => set({ editingSaleId: id }),
     resetBilling: () => set({
         cart: [],
         customer: null,
@@ -172,6 +177,7 @@ export const useBillingStore = create<BillingState>((set, get) => ({
         activeStaff: null,
         extraDiscountPct: 0,
         lastInvoice: null,
+        editingSaleId: null,
         // intentionally keeping lastInvoice per requirements
     }),
 

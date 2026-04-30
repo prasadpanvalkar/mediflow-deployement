@@ -3,8 +3,7 @@ from decimal import Decimal
 from datetime import datetime
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from apps.core.permissions import IsManagerOrAbove
+from apps.core.permissions import IsAuthenticated, IsManagerOrAbove, CanCreatePurchases, CanEditPurchaseInvoice, CanAccessPurchases
 from rest_framework import status
 from django.db.models import Q
 
@@ -25,7 +24,7 @@ class DistributorListView(APIView):
     Returns list of distributor profiles with credit terms.
     """
 
-    permission_classes = [IsManagerOrAbove]
+    permission_classes = [CanAccessPurchases]
 
     def get(self, request, *args, **kwargs):
         """
@@ -190,7 +189,7 @@ class DistributorDetailView(APIView):
     Get distributor details by ID.
     """
 
-    permission_classes = [IsManagerOrAbove]
+    permission_classes = [CanAccessPurchases]
 
     def get(self, request, distributor_id, *args, **kwargs):
         """Get distributor details."""
@@ -312,7 +311,7 @@ class DistributorLedgerView(APIView):
     Returns list of all debit/credit entries for the distributor.
     """
 
-    permission_classes = [IsManagerOrAbove]
+    permission_classes = [CanAccessPurchases]
 
     def get(self, request, distributor_id, *args, **kwargs):
         """
@@ -447,7 +446,7 @@ class PurchaseCreateView(APIView):
     Response: PurchaseInvoiceFull (201 Created) or error (400/404/500)
     """
 
-    permission_classes = [IsManagerOrAbove]
+    permission_classes = [CanCreatePurchases]
 
     def post(self, request, *args, **kwargs):
         """
@@ -665,7 +664,7 @@ class PurchaseListView(APIView):
     Response: PaginatedResponse<PurchaseInvoice>
     """
 
-    permission_classes = [IsManagerOrAbove]
+    permission_classes = [CanAccessPurchases]
 
     def get(self, request, *args, **kwargs):
         """
@@ -943,7 +942,10 @@ class PurchaseDetailView(APIView):
     Get details of a specific purchase invoice, including its items.
     """
     
-    permission_classes = [IsManagerOrAbove]
+    def get_permissions(self):
+        if self.request.method == 'PUT':
+            return [CanEditPurchaseInvoice()]
+        return [IsAuthenticated()]
 
     def get(self, request, purchase_id, *args, **kwargs):
         outlet_id = request.query_params.get('outletId')
@@ -964,11 +966,26 @@ class PurchaseDetailView(APIView):
                 {'detail': f'Purchase invoice {purchase_id} not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+        # Resolve the party ledger linked to this distributor
+        from apps.accounts.models import Ledger as AccountsLedger
+        party_ledger = AccountsLedger.objects.filter(
+            outlet=outlet,
+            linked_distributor=invoice.distributor
+        ).first()
             
         result = {
             'id': str(invoice.id),
             'outletId': str(invoice.outlet_id),
             'distributorId': str(invoice.distributor_id),
+            'partyLedgerId': str(party_ledger.id) if party_ledger else None,
+            'partyLedger': {
+                'id': str(party_ledger.id),
+                'name': party_ledger.name,
+                'group': party_ledger.group.name if party_ledger.group else None,
+                'currentBalance': float(party_ledger.current_balance),
+                'state': party_ledger.state or '',
+            } if party_ledger else None,
             'distributor': {
                 'id': str(invoice.distributor.id),
                 'name': invoice.distributor.name,
@@ -1043,13 +1060,54 @@ class PurchaseDetailView(APIView):
         
         return Response(result, status=status.HTTP_200_OK)
 
+    def put(self, request, purchase_id, *args, **kwargs):
+        """Update an existing purchase invoice."""
+        if request.user.role not in ('super_admin', 'admin') and not getattr(request.user, 'can_edit_purchases', False):
+            return Response({'error': {'code': 'FORBIDDEN', 'message': 'You do not have permission to edit purchases.'}}, status=status.HTTP_403_FORBIDDEN)
+            
+        try:
+            payload = request.data
+            outlet_id = payload.get('outletId')
+            created_by_id = request.user.id
+
+            try:
+                outlet = Outlet.objects.get(id=outlet_id)
+            except Outlet.DoesNotExist:
+                logger.warning(f"Outlet {outlet_id} not found")
+                return Response(
+                    {'error': {'code': 'OUTLET_NOT_FOUND', 'message': f'Outlet {outlet_id} not found'}},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            logger.info(f"Updating purchase {purchase_id} for outlet {outlet.name}")
+
+            from apps.purchases.services import atomic_purchase_update, PurchaseServiceError
+            purchase_invoice = atomic_purchase_update(purchase_id, payload, outlet_id, created_by_id)
+
+            logger.info(f"Updated PurchaseInvoice {purchase_invoice.invoice_no}")
+            
+            return Response({'message': 'Purchase invoice updated successfully', 'id': str(purchase_invoice.id)}, status=status.HTTP_200_OK)
+
+        except PurchaseServiceError as e:
+            logger.warning(f"Purchase service error: {str(e)}")
+            return Response(
+                {'error': {'code': 'PURCHASE_ERROR', 'message': str(e)}},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error updating purchase: {e}", exc_info=True)
+            return Response(
+                {'error': {'code': 'INTERNAL_ERROR', 'message': 'Failed to update purchase'}},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class PaymentListView(APIView):
     """
     GET /api/v1/purchases/payments/?distributorId=&from=&to=
     Lists PaymentEntry records for an outlet with optional filters.
     """
-    permission_classes = [IsManagerOrAbove]
+    permission_classes = [CanAccessPurchases]
 
     def get(self, request, *args, **kwargs):
         outlet_id = request.query_params.get('outletId')
@@ -1099,7 +1157,7 @@ class DistributorOutstandingView(APIView):
     GET /api/v1/purchases/distributors/{pk}/outstanding/
     Returns all unpaid PurchaseInvoices for a distributor.
     """
-    permission_classes = [IsManagerOrAbove]
+    permission_classes = [CanAccessPurchases]
 
     def get(self, request, pk, *args, **kwargs):
         outlet_id = request.query_params.get('outletId')
@@ -1138,7 +1196,7 @@ class DistributorOutstandingView(APIView):
 
 class PurchaseInvoiceSearchView(APIView):
     """GET /api/v1/purchases/invoices/search/?outletId=xxx&q=INV-001"""
-    permission_classes = [IsManagerOrAbove]
+    permission_classes = [CanAccessPurchases]
 
     def get(self, request):
         outlet_id = request.query_params.get('outletId')

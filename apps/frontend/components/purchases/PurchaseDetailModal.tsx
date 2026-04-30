@@ -1,7 +1,7 @@
 'use client';
 
 import { format } from 'date-fns';
-import { FileText, Printer, X } from 'lucide-react';
+import { FileText, Printer, X, Edit } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -18,6 +18,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
 
 interface PurchaseDetailModalProps {
+    onEdit?: (invoice: PurchaseInvoiceFull) => void;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     invoice: PurchaseInvoiceFull | null;
@@ -26,7 +27,7 @@ interface PurchaseDetailModalProps {
 const formatINR = (n: number | undefined) =>
     '₹' + (n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDetailModalProps) {
+export function PurchaseDetailModal({ open, onOpenChange, invoice, onEdit }: PurchaseDetailModalProps) {
     const { data: fullInvoiceRes, isLoading } = usePurchaseById(open && invoice ? invoice.id : '');
     const { outlet } = useAuthStore();
     const settings = useSettingsStore();
@@ -91,6 +92,13 @@ export function PurchaseDetailModal({ open, onOpenChange, invoice }: PurchaseDet
                     </div>
 
                     <div className="flex items-center gap-2">
+
+                        {onEdit && (
+                            <Button variant="outline" size="sm" onClick={() => onEdit(displayInvoice)}>
+                                <Edit className="w-4 h-4 mr-2" />
+                                Edit
+                            </Button>
+                        )}
                         <Button variant="outline" size="sm" onClick={handlePrint}>
                             <Printer className="w-4 h-4 mr-2" />
                             Print / PDF

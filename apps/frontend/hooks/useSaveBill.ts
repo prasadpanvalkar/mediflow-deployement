@@ -102,9 +102,14 @@ export function useSaveBill() {
 
             // Try to create via API — no offline fallback (C4).
             // On network failure the cart stays intact and the cashier must retry.
+            const editingSaleId = useBillingStore.getState().editingSaleId;
             let invoice;
             try {
-                invoice = await salesApi.create(payload as never);
+                if (editingSaleId) {
+                    invoice = await salesApi.update(editingSaleId, payload as never);
+                } else {
+                    invoice = await salesApi.create(payload as never);
+                }
                 // If the create response didn't include items, fetch the full invoice
                 if ((invoice as any).id && !((invoice as any).items?.length)) {
                     try {
@@ -154,10 +159,23 @@ export function useSaveBill() {
             useBillingStore.getState().clearCart();
             useBillingStore.getState().incrementBillsToday();
 
-            // Invalidate dashboard stats cache
-            queryClient.invalidateQueries({
-                queryKey: ['dashboard']
-            });
+            // If this was an edit, clear the editing state
+            if (editingSaleId) {
+                useBillingStore.getState().setEditingSaleId(null);
+            }
+
+            // Invalidate all related caches so UI reflects changes everywhere:
+            // - sales list (SalesList, P&L drilldown)
+            // - inventory (stock levels changed)
+            // - dashboard stats
+            // - accounts / ledgers (journal entries reversed + re-posted)
+            queryClient.invalidateQueries({ queryKey: ['sales'] });
+            queryClient.invalidateQueries({ queryKey: ['inventory'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+            queryClient.invalidateQueries({ queryKey: ['ledger'] });
+            queryClient.invalidateQueries({ queryKey: ['accounts'] });
+            queryClient.invalidateQueries({ queryKey: ['profit-loss'] });
+            queryClient.invalidateQueries({ queryKey: ['pl-ledger-stmt'] });
 
             return invoice;
 

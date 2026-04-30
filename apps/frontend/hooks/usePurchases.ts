@@ -37,6 +37,19 @@ export function useCreatePurchase() {
     });
 }
 
+export function useUpdatePurchase() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, payload }: { id: string; payload: CreatePurchasePayload }) =>
+            purchasesApi.update(id, payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['purchases'] });
+            queryClient.invalidateQueries({ queryKey: ['inventory'] });
+            queryClient.invalidateQueries({ queryKey: ['distributors'] });
+        },
+    });
+}
+
 export function useRecordPayment() {
     const queryClient = useQueryClient();
     return useMutation({

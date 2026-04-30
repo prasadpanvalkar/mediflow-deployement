@@ -15,13 +15,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { useCreatePurchase } from '@/hooks/usePurchases';
+import { useCreatePurchase, useUpdatePurchase } from '@/hooks/usePurchases';
 import { LedgerPicker } from '@/components/accounts/LedgerPicker';
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { PurchaseItemRow } from './PurchaseItemRow';
 import { AddNewProductDrawer } from './AddNewProductDrawer';
-import { PurchaseItemFormData, ProductSearchResult, Ledger } from '@/types';
+import { PurchaseItemFormData, ProductSearchResult, Ledger, PurchaseInvoiceFull } from '@/types';
 import { useOutletId } from '@/hooks/useOutletId';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ const isNearExpiry = (exp: string) =>
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
+export function NewPurchaseForm({ onSuccess, invoiceToEdit }: { onSuccess: () => void, invoiceToEdit?: PurchaseInvoiceFull | null }) {
     const { toast }   = useToast();
     const outletId    = useOutletId();
     const outlet      = useAuthStore((s) => s.outlet);
@@ -104,6 +104,7 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
         ? `purchase_form_draft_${outlet.id}_${user.id}`
         : null;
     const createPurchase = useCreatePurchase();
+    const updatePurchase = useUpdatePurchase();
     const [partyLedger, setPartyLedger] = useState<Ledger | null>(null);
 
     const [items,             setItems]             = useState<PurchaseItemFormData[]>([emptyItem()]);
@@ -151,6 +152,7 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
         toast({ title: 'Product added successfully' });
     };
 
+
     const {
         register, handleSubmit, setValue, setError,
         watch, reset,
@@ -168,6 +170,56 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
 
     const watchedPurchaseType = watch('purchaseType');
     const watchedFreight      = watch('freight') ?? 0;
+
+    // Initialize form if editing — must be after useForm so `reset` is in scope
+    useEffect(() => {
+        if (!invoiceToEdit) return;
+        const adj = invoiceToEdit.ledgerAdjustment ?? 0;
+        // Backend convention: positive adj = subtract from total, negative adj = add to total
+        setPartyLedger((invoiceToEdit.partyLedger as any) || null);
+        setLedgerAdjustment(Math.abs(adj));
+        setAdjustmentSign(adj >= 0 ? '-' : '+');
+        setLedgerNote(invoiceToEdit.ledgerNote || '');
+
+        const formItems: PurchaseItemFormData[] = invoiceToEdit.items.map(it => ({
+            productId: it.masterProductId || '',
+            productName: it.customProductName || it.product?.name || '',
+            isCustom: it.isCustomProduct,
+            hsnCode: it.hsnCode || '',
+            batchNo: it.batchNo,
+            expiryDate: it.expiryDate || '',
+            pkg: it.pkg,
+            packUnitLabel: '',
+            qty: it.qty,
+            freeQty: it.freeQty,
+            purchaseRate: it.purchaseRate,
+            freightPerUnit: (it as any).freightPerUnit || 0,
+            otherCostPerUnit: (it as any).otherCostPerUnit || 0,
+            discountPct: it.discountPct,
+            cashDiscountPct: it.cashDiscountPct,
+            gstRate: it.gstRate,
+            cess: it.cess,
+            mrp: it.mrp,
+            ptr: it.ptr || 0,
+            pts: it.pts || 0,
+            saleRate: it.saleRate || 0,
+        }));
+        setItems(formItems);
+
+        reset({
+            partyLedgerId: invoiceToEdit.partyLedgerId || '',
+            purchaseType: invoiceToEdit.purchaseType as 'cash' | 'credit',
+            invoiceNo: invoiceToEdit.invoiceNo,
+            invoiceDate: invoiceToEdit.invoiceDate.split('T')[0],
+            dueDate: invoiceToEdit.dueDate ? invoiceToEdit.dueDate.split('T')[0] : undefined,
+            purchaseOrderRef: invoiceToEdit.purchaseOrderRef || '',
+            godown: (invoiceToEdit.godown as string) || 'main',
+            freight: invoiceToEdit.freight || 0,
+            notes: invoiceToEdit.notes || '',
+            items: formItems,
+        });
+    }, [invoiceToEdit, reset]);
+
 
     // ── Draft ────────────────────────────────────────────────────────────────
 
@@ -331,12 +383,22 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
                 }),
             };
 
-            await createPurchase.mutateAsync(payload);
-            if (draftKey) localStorage.removeItem(draftKey);
-            toast({
-                title:       'Purchase saved ✓',
-                description: `Invoice ${data.invoiceNo} — ${items.length} item${items.length !== 1 ? 's' : ''}, ${totalUnits} units added to stock.`,
-            });
+
+            if (invoiceToEdit) {
+                await updatePurchase.mutateAsync({ id: invoiceToEdit.id, payload });
+                toast({
+                    title:       'Purchase updated ✓',
+                    description: `Invoice ${data.invoiceNo} has been modified successfully.`,
+                });
+            } else {
+                await createPurchase.mutateAsync(payload);
+                if (draftKey) localStorage.removeItem(draftKey);
+                toast({
+                    title:       'Purchase saved ✓',
+                    description: `Invoice ${data.invoiceNo} — ${items.length} item${items.length !== 1 ? 's' : ''}, ${totalUnits} units added to stock.`,
+                });
+            }
+
             onSuccess();
         } catch (err: any) {
             const code = err?.error?.code;
@@ -788,7 +850,7 @@ export function NewPurchaseForm({ onSuccess }: { onSuccess: () => void }) {
                         disabled={isSubmitting}
                         className="min-w-[140px] gap-2"
                     >
-                        {isSubmitting ? 'Saving...' : 'Save Purchase'}
+                        {isSubmitting ? 'Saving...' : invoiceToEdit ? 'Update Purchase' : 'Save Purchase'}
                     </Button>
                 </div>
             </div>

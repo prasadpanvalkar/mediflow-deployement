@@ -51,7 +51,7 @@ function getPeriodBounds(period: PeriodFilter): { start: string; end: string } |
 
 /* ─── component ───────────────────────────────────────────── */
 
-export function PurchasesList() {
+export function PurchasesList({ onEditInvoice }: { onEditInvoice?: (invoice: PurchaseInvoiceFull) => void }) {
     const { data, isLoading } = usePurchasesList();
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -390,6 +390,7 @@ export function PurchasesList() {
                 open={!!selectedInvoice}
                 onOpenChange={(open) => !open && setSelectedInvoice(null)}
                 invoice={selectedInvoice}
+                onEdit={onEditInvoice ? (inv) => { setSelectedInvoice(null); onEditInvoice(inv); } : undefined}
             />
         </div>
     );

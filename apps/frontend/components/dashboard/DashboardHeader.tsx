@@ -4,13 +4,17 @@ import { RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { DateRangePicker } from '@/components/reports/DateRangePicker';
+import { DateRangeFilter } from '@/types';
 
 interface DashboardHeaderProps {
   isFetching?: boolean;
   onRefresh?: () => void;
+  dateRange: DateRangeFilter;
+  onDateRangeChange: (range: DateRangeFilter) => void;
 }
 
-export default function DashboardHeader({ isFetching, onRefresh }: DashboardHeaderProps) {
+export default function DashboardHeader({ isFetching, onRefresh, dateRange, onDateRangeChange }: DashboardHeaderProps) {
   const { user, outlet } = useAuthStore();
   const { selectedOutletId } = useSettingsStore();
   const today = format(new Date(), 'dd MMM yyyy');
@@ -50,8 +54,11 @@ export default function DashboardHeader({ isFetching, onRefresh }: DashboardHead
           {isFetching ? 'Updating...' : 'Refresh'}
         </button>
 
-        <div className="bg-slate-100/80 text-slate-700 text-sm px-3 py-1.5 rounded-lg font-medium border border-slate-200/60 hidden sm:block">
-          {today}
+        <div className="hidden sm:block">
+          <DateRangePicker 
+            value={dateRange} 
+            onChange={(range) => onDateRangeChange(range)}
+          />
         </div>
       </div>
     </div>

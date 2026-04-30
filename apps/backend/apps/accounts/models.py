@@ -56,6 +56,8 @@ class Staff(AbstractBaseUser, PermissionsMixin):
     can_view_purchase_rates = models.BooleanField(default=False)
     can_create_purchases = models.BooleanField(default=False)
     can_access_reports = models.BooleanField(default=False)
+    can_edit_sales = models.BooleanField(default=False)
+    can_edit_purchases = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     joining_date = models.DateTimeField(auto_now_add=True)

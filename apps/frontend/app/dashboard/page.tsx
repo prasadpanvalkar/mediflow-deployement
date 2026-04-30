@@ -1,5 +1,8 @@
 'use client';
 
+import { useState } from 'react';
+import { DateRangeFilter } from '@/types';
+import { format } from 'date-fns';
 import { useDashboardKPI, useDashboardAlerts } from '@/hooks/useDashboard';
 import DashboardHeader from '@/components/dashboard/DashboardHeader';
 import StatCardsRow from '@/components/dashboard/StatCardsRow';
@@ -25,14 +28,25 @@ const HourlySalesChart = dynamic(() => import('@/components/dashboard/HourlySale
 });
 
 export default function DashboardPage() {
-  const { data: kpi, isLoading: kpiLoading, isFetching, refetch } = useDashboardKPI();
-  const { data: alerts, isLoading: alertsLoading } = useDashboardAlerts();
+  const [dateRange, setDateRange] = useState<DateRangeFilter>({
+    from: format(new Date(), 'yyyy-MM-dd'),
+    to: format(new Date(), 'yyyy-MM-dd'),
+    period: 'today'
+  });
+
+  const { data: kpi, isLoading: kpiLoading, isFetching, refetch } = useDashboardKPI(dateRange);
+  const { data: alerts, isLoading: alertsLoading } = useDashboardAlerts(dateRange);
 
   return (
     <div className="space-y-6 max-w-[1400px]">
 
       {/* Greeting + date + refresh */}
-      <DashboardHeader isFetching={isFetching} onRefresh={refetch} />
+      <DashboardHeader 
+        isFetching={isFetching} 
+        onRefresh={refetch} 
+        dateRange={dateRange}
+        onDateRangeChange={setDateRange}
+      />
 
       {/* KPI Cards */}
       <StatCardsRow kpi={kpi} isLoading={kpiLoading} />
