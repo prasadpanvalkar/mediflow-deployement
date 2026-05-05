@@ -978,3 +978,96 @@ class InventoryAdjustView(APIView):
         }
 
         return Response(result, status=status.HTTP_200_OK)
+
+
+from apps.inventory.models import StockLedger
+from datetime import datetime
+
+class StockLedgerView(APIView):
+    """
+    GET /api/v1/inventory/stockledger/?outletId=xxx&batchId=yyy&productId=zzz
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # Accept both camelCase and snake_case query parameters
+        outlet_id  = request.query_params.get('outletId')  or request.query_params.get('outlet_id')
+        batch_id   = request.query_params.get('batchId')   or request.query_params.get('batch_id')
+        product_id = request.query_params.get('productId') or request.query_params.get('product_id')
+        start_date = request.query_params.get('startDate') or request.query_params.get('start_date') or request.query_params.get('date_from')
+        end_date   = request.query_params.get('endDate')   or request.query_params.get('end_date')   or request.query_params.get('date_to')
+
+        if not outlet_id:
+            return Response({'detail': 'outletId is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            outlet = Outlet.objects.get(id=outlet_id)
+        except Outlet.DoesNotExist:
+            return Response({'detail': 'Outlet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        qs = StockLedger.objects.filter(outlet=outlet).select_related('product', 'batch').order_by('-created_at')
+
+        if batch_id:
+            qs = qs.filter(batch_id=batch_id)
+        if product_id:
+            qs = qs.filter(product_id=product_id)
+        
+        if start_date:
+            try:
+                dt = datetime.fromisoformat(start_date).date()
+                qs = qs.filter(txn_date__gte=dt)
+            except ValueError:
+                pass
+        
+        if end_date:
+            try:
+                dt = datetime.fromisoformat(end_date).date()
+                qs = qs.filter(txn_date__lte=dt)
+            except ValueError:
+                pass
+
+        # Calculate totals
+        total_in = qs.aggregate(Sum('qty_in'))['qty_in__sum'] or Decimal('0')
+        total_out = qs.aggregate(Sum('qty_out'))['qty_out__sum'] or Decimal('0')
+
+        # Pagination
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('pageSize') or request.query_params.get('page_size', 50))
+        total_records = qs.count()
+        total_pages = (total_records + page_size - 1) // page_size
+        
+        qs = qs[(page - 1) * page_size : page * page_size]
+
+        data = []
+        for entry in qs:
+            data.append({
+                'id': str(entry.id),
+                'txn_date': entry.txn_date.isoformat(),
+                'txn_type': entry.txn_type,
+                'voucher_type': entry.voucher_type,
+                'voucher_number': entry.voucher_number,
+                'party_name': entry.party_name,
+                'product_name': entry.product.name if entry.product else '',
+                'batch_number': entry.batch_number,
+                'expiry_date': entry.expiry_date.isoformat() if entry.expiry_date else None,
+                'qty_in': float(entry.qty_in),
+                'qty_out': float(entry.qty_out),
+                'rate': float(entry.rate),
+                'running_qty': float(entry.running_qty),
+                'running_value': float(entry.running_value),
+                'created_at': entry.created_at.isoformat(),
+            })
+
+        return Response({
+            'data': data,
+            'summary': {
+                'total_in': float(total_in),
+                'total_out': float(total_out),
+            },
+            'pagination': {
+                'page': page,
+                'pageSize': page_size,
+                'totalPages': total_pages,
+                'totalRecords': total_records
+            }
+        })

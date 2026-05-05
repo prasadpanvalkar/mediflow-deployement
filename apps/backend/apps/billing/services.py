@@ -440,6 +440,23 @@ def atomic_sale_update(sale_id: str, payload: Dict[str, Any], outlet_id: str, up
                 )
                 sale_items.append(sale_item)
 
+                from apps.inventory.services import post_stock_ledger_entry
+                deducted_qty = qty_to_deduct + (Decimal(str(loose_to_deduct)) / Decimal(str(product.pack_size or 1)) if loose_to_deduct else 0)
+                post_stock_ledger_entry(
+                    outlet         = sale_invoice.outlet,
+                    product        = batch.product,
+                    batch          = batch,
+                    txn_type       = 'SALE_OUT',
+                    txn_date       = invoice_date.date() if 'invoice_date' in locals() and hasattr(invoice_date, 'date') else sale_invoice.invoice_date.date() if hasattr(sale_invoice.invoice_date, 'date') else sale_invoice.invoice_date,
+                    voucher_type   = 'Sale Invoice',
+                    voucher_number = sale_invoice.invoice_no,
+                    party_name     = new_customer.name if new_customer else 'Walk-in',
+                    qty_in         = 0,
+                    qty_out        = deducted_qty,
+                    rate           = sale_item.rate,
+                    source_object  = sale_item,
+                )
+
                 if product.schedule_type in ['G', 'H', 'H1', 'X', 'C', 'Narcotic']:
                     ScheduleHRegister.objects.create(
                         sale_item=sale_item,

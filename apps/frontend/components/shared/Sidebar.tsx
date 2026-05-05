@@ -60,6 +60,10 @@ const NAV_ITEMS: NavItem[] = [
         href: '/dashboard/inventory',
         icon: Package,
         permission: 'view_outlet' as Permission,
+        subItems: [
+            { label: 'Stock List', href: '/dashboard/inventory', icon: List },
+            { label: 'Stock Ledger', href: '/dashboard/stockledger', icon: ClipboardList },
+        ],
     },
     {
         label: 'Purchases',

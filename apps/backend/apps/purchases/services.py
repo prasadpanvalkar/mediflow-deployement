@@ -271,6 +271,23 @@ def atomic_purchase_save(payload: Dict[str, Any], outlet_id: str, created_by_id:
         PurchaseItem.objects.bulk_create(purchase_items)
         logger.info(f"Created {len(purchase_items)} PurchaseItems")
 
+        from apps.inventory.services import post_stock_ledger_entry
+        for pi in purchase_items:
+            post_stock_ledger_entry(
+                outlet         = purchase_invoice.outlet,
+                product        = pi.batch.product,
+                batch          = pi.batch,
+                txn_type       = 'PURCHASE_IN',
+                txn_date       = purchase_invoice.invoice_date,
+                voucher_type   = 'Purchase Invoice',
+                voucher_number = purchase_invoice.invoice_no,
+                party_name     = purchase_invoice.distributor.name,
+                qty_in         = pi.qty + pi.free_qty,
+                qty_out        = 0,
+                rate           = pi.purchase_rate,
+                source_object  = pi,
+            )
+
         # ─── Step 6: Create LedgerEntry (append-only) ──────────────────────────────────
         # Query the last ledger entry for this distributor to calculate running balance
         last_ledger = LedgerEntry.objects.filter(
@@ -762,6 +779,23 @@ def atomic_purchase_update(purchase_id: str, payload: Dict[str, Any], outlet_id:
             purchase_items.append(purchase_item)
 
         PurchaseItem.objects.bulk_create(purchase_items)
+
+        from apps.inventory.services import post_stock_ledger_entry
+        for pi in purchase_items:
+            post_stock_ledger_entry(
+                outlet         = purchase_invoice.outlet,
+                product        = pi.batch.product,
+                batch          = pi.batch,
+                txn_type       = 'PURCHASE_IN',
+                txn_date       = purchase_invoice.invoice_date,
+                voucher_type   = 'Purchase Invoice',
+                voucher_number = purchase_invoice.invoice_no,
+                party_name     = purchase_invoice.distributor.name,
+                qty_in         = pi.qty + pi.free_qty,
+                qty_out        = 0,
+                rate           = pi.purchase_rate,
+                source_object  = pi,
+            )
 
         # ─── Step 7: Update LedgerEntry ───────────────────────────────────────────
         ledger_entry = LedgerEntry.objects.filter(

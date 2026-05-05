@@ -39,6 +39,7 @@ const PAYMENT_COLORS: Record<string, string> = {
 // ── date helpers ──────────────────────────────────────────────────────────────
 const fd = (d: Date) => format(d, 'yyyy-MM-dd');
 const now = new Date();
+const PAGE_SIZE = 10;
 
 const DATE_PRESETS = [
     { label: 'Today', start: fd(now), end: fd(now) },

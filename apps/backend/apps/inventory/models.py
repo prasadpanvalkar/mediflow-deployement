@@ -95,6 +95,11 @@ class Batch(models.Model):
     sale_rate = models.DecimalField(max_digits=10, decimal_places=2, help_text='Selling price per pack')
     qty_strips = models.IntegerField(default=0, help_text='Number of full strips/packs')
     qty_loose = models.IntegerField(default=0, help_text='Number of loose units (< 1 pack)')
+    opening_qty = models.DecimalField(
+        max_digits=12, decimal_places=3,
+        null=True, blank=True,
+        help_text='Original quantity at time of import/creation. Never changes.'
+    )
     rack_location = models.CharField(max_length=100, null=True, blank=True, help_text='Physical shelf/rack location')
     is_active = models.BooleanField(default=True)
     is_opening_stock = models.BooleanField(default=False, help_text='True if imported as opening stock (Marg migration)')
@@ -148,3 +153,60 @@ class Batch(models.Model):
         """Calculate stock value at MRP."""
         pack_size = self.product.pack_size if self.product else 1
         return float(self.mrp) * (self.qty_strips + (self.qty_loose / pack_size))
+
+
+class StockLedger(models.Model):
+    TXN_TYPES = [
+        ('OPENING',          'Opening Stock'),
+        ('PURCHASE_IN',      'Purchase In'),
+        ('SALE_OUT',         'Sale Out'),
+        ('PURCHASE_RETURN',  'Purchase Return'),
+        ('SALE_RETURN',      'Sale Return'),
+        ('ADJUSTMENT_IN',    'Adjustment In'),
+        ('ADJUSTMENT_OUT',   'Adjustment Out'),
+    ]
+
+    id              = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    outlet          = models.ForeignKey('core.Outlet', on_delete=models.PROTECT,
+                                        related_name='stock_ledger_entries')
+    product         = models.ForeignKey('inventory.MasterProduct', on_delete=models.PROTECT,
+                                        related_name='stock_ledger_entries')
+    batch           = models.ForeignKey('inventory.Batch', on_delete=models.SET_NULL,
+                                        null=True, blank=True,
+                                        related_name='stock_ledger_entries')
+
+    txn_type        = models.CharField(max_length=20, choices=TXN_TYPES)
+    txn_date        = models.DateField()
+    voucher_type    = models.CharField(max_length=50)   # "Purchase Invoice", "Sale Invoice", etc.
+    voucher_number  = models.CharField(max_length=50, blank=True, default='')
+    party_name      = models.CharField(max_length=200, blank=True, default='')  # snapshot
+
+    # Source FK — content type pattern for any source model
+    content_type    = models.ForeignKey('contenttypes.ContentType',
+                                        on_delete=models.SET_NULL, null=True, blank=True)
+    object_id       = models.UUIDField(null=True, blank=True)
+
+    batch_number    = models.CharField(max_length=100, blank=True, default='')  # snapshot
+    expiry_date     = models.DateField(null=True, blank=True)                   # snapshot
+
+    qty_in          = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    qty_out         = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    rate            = models.DecimalField(max_digits=12, decimal_places=4, default=0)
+    value_in        = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    value_out       = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    running_qty     = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    running_value   = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+
+    created_at      = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['txn_date', 'created_at']
+        indexes = [
+            models.Index(fields=['outlet', 'product', 'txn_date']),
+            models.Index(fields=['outlet', 'batch', 'txn_date']),
+            models.Index(fields=['outlet', 'product', 'batch']),
+        ]
+
+    def __str__(self):
+        return f"{self.txn_date} | {self.txn_type} | {self.product} | IN:{self.qty_in} OUT:{self.qty_out}"
+

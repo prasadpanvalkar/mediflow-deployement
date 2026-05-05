@@ -48,8 +48,13 @@ export const useAuthStore = create<AuthState>()(
                 outlet: state.outlet,
                 isAuthenticated: state.isAuthenticated
             }), // Only persist these fields
-            onRehydrateStorage: () => (state) => {
-                state?.setHasHydrated(true)
+            onRehydrateStorage: () => (state, error) => {
+                if (error) {
+                    console.warn('Auth hydration error:', error);
+                    useAuthStore.getState().setHasHydrated(true);
+                } else {
+                    state?.setHasHydrated(true);
+                }
             }
         }
     )

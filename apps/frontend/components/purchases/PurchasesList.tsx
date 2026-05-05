@@ -55,7 +55,7 @@ export function PurchasesList({ onEditInvoice }: { onEditInvoice?: (invoice: Pur
     const { data, isLoading } = usePurchasesList();
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-    const [period, setPeriod] = useState<PeriodFilter>('this_month');
+    const [period, setPeriod] = useState<PeriodFilter>('all');
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [page, setPage] = useState(1);
     const [selectedInvoice, setSelectedInvoice] = useState<PurchaseInvoiceFull | null>(null);
